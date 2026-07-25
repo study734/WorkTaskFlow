@@ -1,0 +1,18 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*
+secrets*
+
+# Generated and temporary files
+node_modules/
+dist/
+build/
+target/
+*.log
+*.tmp
