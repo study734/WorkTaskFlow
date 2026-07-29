@@ -3,7 +3,7 @@ package com.teamproject.group.presentation;
 import com.teamproject.group.application.GroupService;
 import com.teamproject.group.application.GroupInvitationService;
 import com.teamproject.group.application.GroupMemberService;
-import com.teamproject.group.application.GroupReportService;
+import com.teamproject.report.application.BasicReportAccessService;
 import com.teamproject.group.application.dto.GroupDtos.CreateGroupRequest;
 import com.teamproject.group.application.dto.GroupDtos.GroupResponse;
 import com.teamproject.group.application.dto.GroupDtos.UpdateGroupRequest;
@@ -28,10 +28,10 @@ public class GroupController {
     private final GroupService groups;
     private final GroupInvitationService invitations;
     private final GroupMemberService members;
-    private final GroupReportService reports;
+    private final BasicReportAccessService reports;
 
     public GroupController(GroupService groups, GroupInvitationService invitations, GroupMemberService members,
-            GroupReportService reports) {
+            BasicReportAccessService reports) {
         this.groups = groups;
         this.invitations = invitations;
         this.members = members;
@@ -57,8 +57,9 @@ public class GroupController {
     @PostMapping("/{groupId}/reports/access")
     ReportAccessResponse reportAccess(Authentication authentication, @PathVariable Long groupId,
             @Valid @RequestBody ReportAccessRequest request) {
-        return reports.authorize((Long) authentication.getPrincipal(), groupId,
-                request.scope(), request.periodType());
+        Long userId = (Long) authentication.getPrincipal();
+        reports.validate(userId, groupId, request.scope(), request.periodType());
+        return reports.record(userId, groupId, request.scope(), request.periodType());
     }
 
     @GetMapping("/{groupId}")

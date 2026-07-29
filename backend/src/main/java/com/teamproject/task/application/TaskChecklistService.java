@@ -11,6 +11,7 @@ import com.teamproject.task.domain.Task;
 import com.teamproject.task.domain.TaskChecklistItem;
 import com.teamproject.task.domain.TaskChecklistItemRepository;
 import com.teamproject.task.domain.TaskRepository;
+import com.teamproject.task.domain.TaskActivityEvent;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,12 +22,14 @@ public class TaskChecklistService {
     private final TaskRepository tasks;
     private final TaskChecklistItemRepository items;
     private final GroupAuthorization authorization;
+    private final TaskActivityRecorder activity;
 
     public TaskChecklistService(TaskRepository tasks, TaskChecklistItemRepository items,
-            GroupAuthorization authorization) {
+            GroupAuthorization authorization, TaskActivityRecorder activity) {
         this.tasks = tasks;
         this.items = items;
         this.authorization = authorization;
+        this.activity = activity;
     }
 
     @Transactional(readOnly = true)
@@ -43,7 +46,10 @@ public class TaskChecklistService {
         requireWritable(task, actor);
         int sortOrder = request.sortOrder() == null
                 ? items.findMaxSortOrderByTaskId(taskId) + 1 : request.sortOrder();
-        return response(items.save(new TaskChecklistItem(task, request.content().trim(), sortOrder)));
+        TaskChecklistItem item = items.saveAndFlush(
+                new TaskChecklistItem(task, request.content().trim(), sortOrder));
+        activity.record(task, actor, TaskActivityEvent.Type.CHECKLIST_CHANGED);
+        return response(item);
     }
 
     @Transactional
@@ -59,6 +65,7 @@ public class TaskChecklistService {
             item.changeCompletion(request.completed(), actor);
         }
         items.flush();
+        activity.record(task, actor, TaskActivityEvent.Type.CHECKLIST_CHANGED);
         return response(item);
     }
 
@@ -70,6 +77,8 @@ public class TaskChecklistService {
         requireWritable(task, actor);
         requireVersion(item, expectedVersion);
         items.delete(item);
+        items.flush();
+        activity.record(task, actor, TaskActivityEvent.Type.CHECKLIST_CHANGED);
     }
 
     private void requireWritable(Task task, GroupMember actor) {

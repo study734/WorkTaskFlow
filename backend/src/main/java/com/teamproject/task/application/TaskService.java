@@ -16,10 +16,14 @@ import com.teamproject.task.domain.Task;
 import com.teamproject.task.domain.TaskRepository;
 import com.teamproject.task.domain.TaskStatusHistory;
 import com.teamproject.task.domain.TaskStatusHistoryRepository;
+import com.teamproject.task.domain.TaskActivityEvent;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
@@ -28,13 +32,18 @@ public class TaskService {
     private final TaskRepository tasks;
     private final TaskStatusHistoryRepository histories;
     private final NotificationService notifications;
+    private final TaskActivityRecorder activity;
+    private final Clock clock;
 
     public TaskService(GroupAuthorization authorization, TaskRepository tasks,
-            TaskStatusHistoryRepository histories, NotificationService notifications) {
+            TaskStatusHistoryRepository histories, NotificationService notifications,
+            TaskActivityRecorder activity, Clock clock) {
         this.authorization = authorization;
         this.tasks = tasks;
         this.histories = histories;
         this.notifications = notifications;
+        this.activity = activity;
+        this.clock = clock;
     }
 
     @Transactional
@@ -43,6 +52,7 @@ public class TaskService {
         Task task = tasks.save(new Task(requester.getGroup(), requester, request.title().trim(),
                 blankToNull(request.description()), priority(request.priority()), request.dueAt()));
         histories.save(new TaskStatusHistory(task, null, task.getStatus(), requester, null));
+        activity.record(task, requester, TaskActivityEvent.Type.TASK_CREATED);
         notifications.taskRequested(task, requester);
         return response(task);
     }
@@ -87,7 +97,13 @@ public class TaskService {
             case "HOLD" -> {
                 requireAssignee(task, actor);
                 requireStatus(task, Task.Status.IN_PROGRESS);
-                task.hold(requireReason(reason));
+                String requiredReason = requireReason(reason);
+                Task.BlockerType blockerType = blockerType(request.blockerType());
+                Task.BlockerNextActionType nextAction =
+                        blockerNextActionType(request.blockerNextActionType());
+                LocalDate reviewDate = requireReviewDate(
+                        request.blockerReviewDate(), task.getGroup().getTimezone());
+                task.hold(requiredReason, blockerType, nextAction, reviewDate);
             }
             case "RESUME" -> {
                 requireAssignee(task, actor);
@@ -115,6 +131,7 @@ public class TaskService {
         }
         tasks.flush();
         histories.save(new TaskStatusHistory(task, from, task.getStatus(), actor, reason));
+        activity.record(task, actor, TaskActivityEvent.Type.STATUS_CHANGED);
         notifications.taskStatusChanged(task, actor, from);
         return response(task);
     }
@@ -130,6 +147,7 @@ public class TaskService {
                 task.getGroup().getId(), request.assigneeMemberId());
         task.assign(assignee);
         tasks.flush();
+        activity.record(task, actor, TaskActivityEvent.Type.ASSIGNEE_CHANGED);
         notifications.taskAssigned(task, actor, assignee);
         return response(task);
     }
@@ -145,6 +163,7 @@ public class TaskService {
         }
         task.assign(actor);
         tasks.flush();
+        activity.record(task, actor, TaskActivityEvent.Type.ASSIGNEE_CHANGED);
         notifications.taskAssigned(task, actor, actor);
         return response(task);
     }
@@ -164,6 +183,7 @@ public class TaskService {
                 ? null : request.dueAt() == null ? task.getDueAt() : request.dueAt();
         task.updateDetails(title, description, priority, dueAt);
         tasks.flush();
+        activity.record(task, actor, TaskActivityEvent.Type.DETAILS_CHANGED);
         return response(task);
     }
 
@@ -261,6 +281,42 @@ public class TaskService {
         }
         return reason;
     }
+    private Task.BlockerType blockerType(String value) {
+        if (value == null || value.isBlank()) {
+            throw new ApplicationException("TASK_BLOCKER_TYPE_REQUIRED", HttpStatus.BAD_REQUEST,
+                    "보류 사유 유형을 선택해 주세요.");
+        }
+        try {
+            return Task.BlockerType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            throw new ApplicationException("TASK_BLOCKER_TYPE_INVALID", HttpStatus.BAD_REQUEST,
+                    "올바른 보류 사유 유형을 선택해 주세요.");
+        }
+    }
+    private Task.BlockerNextActionType blockerNextActionType(String value) {
+        if (value == null || value.isBlank()) {
+            throw new ApplicationException("TASK_BLOCKER_NEXT_ACTION_REQUIRED",
+                    HttpStatus.BAD_REQUEST, "보류 해소를 위한 다음 조치를 선택해 주세요.");
+        }
+        try {
+            return Task.BlockerNextActionType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            throw new ApplicationException("TASK_BLOCKER_NEXT_ACTION_INVALID",
+                    HttpStatus.BAD_REQUEST, "올바른 다음 조치 유형을 선택해 주세요.");
+        }
+    }
+    private LocalDate requireReviewDate(LocalDate value, String timezone) {
+        if (value == null) {
+            throw new ApplicationException("TASK_BLOCKER_REVIEW_DATE_REQUIRED",
+                    HttpStatus.BAD_REQUEST, "보류 상태를 다시 확인할 날짜를 선택해 주세요.");
+        }
+        LocalDate today = LocalDate.now(clock.withZone(ZoneId.of(timezone)));
+        if (value.isBefore(today)) {
+            throw new ApplicationException("TASK_BLOCKER_REVIEW_DATE_PAST",
+                    HttpStatus.BAD_REQUEST, "보류 확인일은 오늘 이후여야 합니다.");
+        }
+        return value;
+    }
     private boolean isTerminal(Task.Status status) {
         return status == Task.Status.COMPLETED || status == Task.Status.REJECTED
                 || status == Task.Status.CANCELLED;
@@ -275,7 +331,11 @@ public class TaskService {
                 task.getAssignee() == null ? null : task.getAssignee().getId(), task.getTitle(),
                 task.getDescription(), task.getPriority().name(), task.getStatus().name(),
                 task.getStartAt(), task.getDueAt(), task.getCompletedAt(),
-                task.getHoldReason(), task.getStopReason(),
+                task.getHoldReason(),
+                task.getBlockerType() == null ? null : task.getBlockerType().name(),
+                task.getBlockerNextActionType() == null
+                        ? null : task.getBlockerNextActionType().name(),
+                task.getBlockerReviewDate(), task.getStopReason(),
                 task.isDelayed(LocalDateTime.now()), task.getVersion(), task.getCreatedAt(), task.getUpdatedAt());
     }
 }

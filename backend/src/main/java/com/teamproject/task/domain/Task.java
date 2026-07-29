@@ -3,6 +3,7 @@ package com.teamproject.task.domain;
 import com.teamproject.group.domain.Group;
 import com.teamproject.group.domain.GroupMember;
 import jakarta.persistence.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -35,6 +36,13 @@ public class Task {
     private LocalDateTime completedAt;
     @Column(length = 500)
     private String holdReason;
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private BlockerType blockerType;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "blocker_next_action_type", length = 30)
+    private BlockerNextActionType blockerNextActionType;
+    private LocalDate blockerReviewDate;
     @Column(length = 500)
     private String stopReason;
     @Column(nullable = false, updatable = false)
@@ -94,12 +102,19 @@ public class Task {
         changeStatus(Status.IN_PROGRESS);
     }
 
-    public void hold(String reason) {
+    public void hold(String reason, BlockerType blockerType,
+            BlockerNextActionType nextActionType, LocalDate reviewDate) {
         this.holdReason = reason;
+        this.blockerType = blockerType;
+        this.blockerNextActionType = nextActionType;
+        this.blockerReviewDate = reviewDate;
         changeStatus(Status.ON_HOLD);
     }
 
-    public void resume() { changeStatus(Status.IN_PROGRESS); }
+    public void resume() {
+        clearBlocker();
+        changeStatus(Status.IN_PROGRESS);
+    }
 
     public void complete() {
         this.completedAt = LocalDateTime.now();
@@ -114,6 +129,13 @@ public class Task {
     public void cancel(String reason) {
         this.stopReason = reason;
         changeStatus(Status.CANCELLED);
+    }
+
+    private void clearBlocker() {
+        this.holdReason = null;
+        this.blockerType = null;
+        this.blockerNextActionType = null;
+        this.blockerReviewDate = null;
     }
 
     private void changeStatus(Status status) {
@@ -133,6 +155,9 @@ public class Task {
     public LocalDateTime getDueAt() { return dueAt; }
     public LocalDateTime getCompletedAt() { return completedAt; }
     public String getHoldReason() { return holdReason; }
+    public BlockerType getBlockerType() { return blockerType; }
+    public BlockerNextActionType getBlockerNextActionType() { return blockerNextActionType; }
+    public LocalDate getBlockerReviewDate() { return blockerReviewDate; }
     public String getStopReason() { return stopReason; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
@@ -140,4 +165,10 @@ public class Task {
 
     public enum Priority { LOW, NORMAL, HIGH, URGENT }
     public enum Status { REQUESTED, TODO, IN_PROGRESS, ON_HOLD, COMPLETED, REJECTED, CANCELLED }
+    public enum BlockerType {
+        DEPENDENCY, DECISION, ACCESS, RESOURCE, TECHNICAL, EXTERNAL, OTHER
+    }
+    public enum BlockerNextActionType {
+        FOLLOW_UP, ESCALATE, DECIDE, UNBLOCK_ACCESS, REPLAN, WAIT_EXTERNAL, OTHER
+    }
 }

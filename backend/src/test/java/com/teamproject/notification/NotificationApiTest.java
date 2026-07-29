@@ -326,10 +326,15 @@ class NotificationApiTest {
     }
 
     private void transitionWithReason(String token, long taskId, String action, long version, String reason) throws Exception {
+        String blockerJson = "HOLD".equals(action)
+                ? ",\"blockerType\":\"EXTERNAL\","
+                        + "\"blockerNextActionType\":\"FOLLOW_UP\","
+                        + "\"blockerReviewDate\":\"2099-12-31\""
+                : "";
         mvc.perform(post("/api/v1/tasks/{taskId}/transitions", taskId)
-                        .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"action\":\"" + action + "\",\"expectedVersion\":" + version
-                                + ",\"reason\":\"" + reason + "\"}"))
+                .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"" + action + "\",\"expectedVersion\":" + version
+                        + ",\"reason\":\"" + reason + "\"" + blockerJson + "}"))
                 .andExpect(status().isOk());
     }
 

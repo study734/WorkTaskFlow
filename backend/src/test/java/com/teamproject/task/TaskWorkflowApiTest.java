@@ -271,11 +271,16 @@ class TaskWorkflowApiTest {
     private org.springframework.test.web.servlet.ResultActions transition(
             String token, long taskId, String action, String reason, long expectedVersion) throws Exception {
         String reasonJson = reason == null ? "null" : "\"" + reason + "\"";
+        String blockerJson = "HOLD".equals(action) && reason != null
+                ? ",\"blockerType\":\"EXTERNAL\","
+                        + "\"blockerNextActionType\":\"FOLLOW_UP\","
+                        + "\"blockerReviewDate\":\"2099-12-31\""
+                : "";
         return mvc.perform(post("/api/v1/tasks/{taskId}/transitions", taskId)
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"action\":\"" + action + "\",\"reason\":" + reasonJson
-                        + ",\"expectedVersion\":" + expectedVersion + "}"));
+                        + blockerJson + ",\"expectedVersion\":" + expectedVersion + "}"));
     }
 
     private org.springframework.test.web.servlet.ResultActions assign(

@@ -11,6 +11,7 @@ import com.teamproject.group.domain.GroupMember;
 import com.teamproject.group.domain.GroupMemberRepository;
 import com.teamproject.group.domain.GroupRepository;
 import com.teamproject.user.domain.UserRepository;
+import com.teamproject.task.domain.TaskActivityEventRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -38,12 +39,15 @@ class TaskChecklistApiTest {
     @Autowired UserRepository users;
     @Autowired GroupRepository groups;
     @Autowired GroupMemberRepository members;
+    @Autowired TaskActivityEventRepository activityEvents;
 
     @Test
     void leaderAndAssigneeManageItemsAndProgress() throws Exception {
         Fixture fixture = fixture("manage");
+        org.assertj.core.api.Assertions.assertThat(activityEvents.countByTaskId(fixture.taskId())).isEqualTo(3);
         long firstId = createItem(fixture.ownerToken(), fixture.taskId(), "요구사항 확인", null);
         long secondId = createItem(fixture.ownerToken(), fixture.taskId(), "구현 완료", null);
+        org.assertj.core.api.Assertions.assertThat(activityEvents.countByTaskId(fixture.taskId())).isEqualTo(5);
 
         mvc.perform(get("/api/v1/tasks/{taskId}/checklist-items", fixture.taskId())
                         .header("Authorization", bearer(fixture.memberToken())))
@@ -64,6 +68,7 @@ class TaskChecklistApiTest {
                 .andExpect(jsonPath("$.completedByMemberId").value(fixture.memberId()))
                 .andExpect(jsonPath("$.completedAt").isNotEmpty())
                 .andExpect(jsonPath("$.version").value(1));
+        org.assertj.core.api.Assertions.assertThat(activityEvents.countByTaskId(fixture.taskId())).isEqualTo(6);
 
         mvc.perform(get("/api/v1/tasks/{taskId}/checklist-items", fixture.taskId())
                         .header("Authorization", bearer(fixture.ownerToken())))
@@ -78,10 +83,12 @@ class TaskChecklistApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").value("요구사항 재확인"))
                 .andExpect(jsonPath("$.version").value(2));
+        org.assertj.core.api.Assertions.assertThat(activityEvents.countByTaskId(fixture.taskId())).isEqualTo(7);
         mvc.perform(delete("/api/v1/checklist-items/{itemId}", secondId)
                         .param("expectedVersion", "0")
                         .header("Authorization", bearer(fixture.ownerToken())))
                 .andExpect(status().isNoContent());
+        org.assertj.core.api.Assertions.assertThat(activityEvents.countByTaskId(fixture.taskId())).isEqualTo(8);
         mvc.perform(get("/api/v1/tasks/{taskId}/checklist-items", fixture.taskId())
                         .header("Authorization", bearer(fixture.memberToken())))
                 .andExpect(status().isOk())
