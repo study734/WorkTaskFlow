@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, requestFile } from './client';
 
 export type GroupResponse = {
   id: number;
@@ -80,6 +80,19 @@ export const groupApi = {
     request<ReportAccessResponse>(`/groups/${groupId}/reports/access`, {
       method: 'POST', body: JSON.stringify({ scope, periodType }),
     }, true),
+  downloadBasicReport: (
+    groupId: number,
+    input: {
+      scope: 'GROUP' | 'MY';
+      periodType: 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+      from: string;
+      to: string;
+      language: 'ko' | 'en';
+    },
+  ) => requestFile(`/groups/${groupId}/reports/basic.pdf`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, true),
   get: (groupId: number) => request<GroupResponse>(`/groups/${groupId}`, {}, true),
   update: (groupId: number, body: UpdateGroupRequest) => request<GroupResponse>(`/groups/${groupId}`, {
     method: 'PATCH', body: JSON.stringify(body),

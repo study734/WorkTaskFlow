@@ -3,9 +3,20 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { accessToken, errorMessage } from '../../../api/client';
 import { commentApi, CommentResponse } from '../../../api/commentApi';
 import { groupApi, GroupResponse, MemberResponse } from '../../../api/groupApi';
-import { ChecklistItemResponse, ChecklistResponse, taskApi, TaskAction, TaskHistoryResponse, TaskResponse } from '../../../api/taskApi';
+import {
+  BlockerNextActionType,
+  BlockerType,
+  ChecklistItemResponse,
+  ChecklistResponse,
+  taskApi,
+  TaskAction,
+  TaskHistoryResponse,
+  TaskResponse,
+  WeeklyObjective,
+} from '../../../api/taskApi';
 import { AppNavigation, Modal } from '../../../app/AppNavigation';
 import { useLanguage } from '../../../app/LanguageContext';
+import { currentWeekStart } from '../../../app/week';
 
 const statusLabels: Record<TaskResponse['status'], [string, string]> = {
   REQUESTED: ['승인 대기', 'Pending approval'], TODO: ['할 일', 'To do'], IN_PROGRESS: ['진행 중', 'In progress'], ON_HOLD: ['보류', 'On hold'],
@@ -17,6 +28,24 @@ const priorityLabels: Record<TaskResponse['priority'], [string, string]> = {
 const actionLabels: Record<TaskAction, [string, string]> = {
   ACCEPT: ['요청 승인', 'Approve request'], REJECT: ['요청 반려', 'Reject request'], START: ['업무 시작', 'Start task'], HOLD: ['업무 보류', 'Put on hold'],
   RESUME: ['업무 재개', 'Resume task'], COMPLETE: ['업무 완료', 'Complete task'], REOPEN: ['완료 업무 재개', 'Reopen completed task'], CANCEL: ['업무 취소', 'Cancel task'],
+};
+const blockerTypeLabels: Record<BlockerType, [string, string]> = {
+  DEPENDENCY: ['선행 업무·의존성', 'Dependency'],
+  DECISION: ['의사결정 필요', 'Decision needed'],
+  ACCESS: ['권한·접근 문제', 'Access'],
+  RESOURCE: ['인력·자원 부족', 'Resource'],
+  TECHNICAL: ['기술 문제', 'Technical'],
+  EXTERNAL: ['외부 응답 대기', 'External'],
+  OTHER: ['기타', 'Other'],
+};
+const blockerActionLabels: Record<BlockerNextActionType, [string, string]> = {
+  FOLLOW_UP: ['담당자 후속 확인', 'Follow up'],
+  ESCALATE: ['팀장에게 에스컬레이션', 'Escalate'],
+  DECIDE: ['의사결정 요청', 'Request decision'],
+  UNBLOCK_ACCESS: ['권한·접근 해소', 'Resolve access'],
+  REPLAN: ['일정·범위 재계획', 'Replan'],
+  WAIT_EXTERNAL: ['외부 응답 재확인', 'Check external response'],
+  OTHER: ['기타 조치', 'Other'],
 };
 
 export function TaskDetailPage() {
@@ -45,6 +74,14 @@ export function TaskDetailPage() {
   const [pending, setPending] = useState(false);
   const [reasonAction, setReasonAction] = useState<TaskAction>();
   const [actionReason, setActionReason] = useState('');
+  const [blockerType, setBlockerType] = useState<BlockerType>('DEPENDENCY');
+  const [blockerNextActionType, setBlockerNextActionType] =
+    useState<BlockerNextActionType>('FOLLOW_UP');
+  const [blockerReviewDate, setBlockerReviewDate] = useState('');
+  const [objectiveWeekStart, setObjectiveWeekStart] = useState('');
+  const [weeklyObjectives, setWeeklyObjectives] = useState<WeeklyObjective[]>([]);
+  const [selectedObjectiveId, setSelectedObjectiveId] = useState('');
+  const [newObjectiveTitle, setNewObjectiveTitle] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -66,13 +103,30 @@ export function TaskDetailPage() {
       setComments(commentValues);
       setAssigneeMemberId(taskValue.assigneeMemberId?.toString() ?? '');
       syncEditFields(taskValue);
+      if (groupValue.type === 'TEAM') {
+        const currentWeek = currentWeekStart(groupValue.timezone);
+        setObjectiveWeekStart(currentWeek);
+        const [objectiveValues, linked] = await Promise.all([
+          taskApi.weeklyObjectives(taskValue.groupId, currentWeek),
+          taskApi.taskWeeklyObjective(taskId, currentWeek),
+        ]);
+        setWeeklyObjectives(objectiveValues);
+        setSelectedObjectiveId(linked.objective?.id.toString() ?? '');
+      }
     }).catch((caught) => setError(errorMessage(caught))).finally(() => setLoading(false));
   }, [taskId]);
 
   async function transition(action: TaskAction) {
     if (!task) return;
     if (action === 'REJECT' || action === 'HOLD' || action === 'REOPEN' || action === 'CANCEL') {
-      setReasonAction(action); setActionReason(''); return;
+      setReasonAction(action);
+      setActionReason('');
+      if (action === 'HOLD') {
+        setBlockerType('DEPENDENCY');
+        setBlockerNextActionType('FOLLOW_UP');
+        setBlockerReviewDate(tomorrowDate());
+      }
+      return;
     }
     await performTransition(action);
   }
@@ -80,10 +134,19 @@ export function TaskDetailPage() {
   async function performTransition(action: TaskAction, reason?: string) {
     if (!task) return;
     if (reasonAction && !reason?.trim()) { setError(t('상태 변경 사유를 입력해 주세요.', 'Enter a reason for this status change.')); return; }
+    if (action === 'HOLD' && !blockerReviewDate) {
+      setError(t('보류 상태를 다시 확인할 날짜를 선택해 주세요.', 'Select a blocker review date.'));
+      return;
+    }
     setPending(true);
     setError('');
     try {
-      const updated = await taskApi.transition(task.id, action, task.version, reason?.trim());
+      const updated = await taskApi.transition(task.id, action, task.version, {
+        reason: reason?.trim(),
+        blockerType: action === 'HOLD' ? blockerType : undefined,
+        blockerNextActionType: action === 'HOLD' ? blockerNextActionType : undefined,
+        blockerReviewDate: action === 'HOLD' ? blockerReviewDate : undefined,
+      });
       setTask(updated);
       setHistories(await taskApi.histories(task.id));
       setReasonAction(undefined); setActionReason('');
@@ -127,6 +190,85 @@ export function TaskDetailPage() {
       setTask(updated);
       syncEditFields(updated);
       setEditing(false);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function linkWeeklyObjective() {
+    if (!task || !objectiveWeekStart) return;
+    setPending(true);
+    setError('');
+    try {
+      const linked = await taskApi.linkTaskWeeklyObjective(
+        task.id,
+        objectiveWeekStart,
+        selectedObjectiveId ? Number(selectedObjectiveId) : undefined,
+      );
+      setSelectedObjectiveId(linked.objective?.id.toString() ?? '');
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function createWeeklyObjective(event: FormEvent) {
+    event.preventDefault();
+    if (!task || !objectiveWeekStart || !newObjectiveTitle.trim()) return;
+    setPending(true);
+    setError('');
+    try {
+      const created = await taskApi.createWeeklyObjective(
+        task.groupId,
+        objectiveWeekStart,
+        newObjectiveTitle.trim(),
+        weeklyObjectives.length + 1,
+      );
+      setWeeklyObjectives([...weeklyObjectives, created]);
+      setSelectedObjectiveId(created.id.toString());
+      setNewObjectiveTitle('');
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function renameWeeklyObjective(objective: WeeklyObjective) {
+    const title = window.prompt(
+      t('주간 목표를 수정해 주세요.', 'Edit the weekly objective.'),
+      objective.title,
+    );
+    if (title === null || !title.trim() || title.trim() === objective.title) return;
+    setPending(true);
+    setError('');
+    try {
+      const updated = await taskApi.updateWeeklyObjective(
+        objective.id, title.trim(), objective.position, objective.version,
+      );
+      setWeeklyObjectives(weeklyObjectives.map((value) =>
+        value.id === updated.id ? updated : value));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function deleteWeeklyObjective(objective: WeeklyObjective) {
+    if (!window.confirm(t(
+      `‘${objective.title}’ 목표를 삭제할까요?`,
+      `Delete the objective “${objective.title}”?`,
+    ))) return;
+    setPending(true);
+    setError('');
+    try {
+      await taskApi.deleteWeeklyObjective(objective.id, objective.version);
+      setWeeklyObjectives(weeklyObjectives.filter((value) => value.id !== objective.id));
+      if (selectedObjectiveId === objective.id.toString()) setSelectedObjectiveId('');
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -286,11 +428,55 @@ export function TaskDetailPage() {
         {task.startAt && <div><dt>{t('시작일', 'Started')}</dt><dd>{formatDate(task.startAt, language)}</dd></div>}
         {task.completedAt && <div><dt>{t('완료일', 'Completed')}</dt><dd>{formatDate(task.completedAt, language)}</dd></div>}
         {task.holdReason && <div><dt>{t('보류 사유', 'Hold reason')}</dt><dd>{task.holdReason}</dd></div>}
+        {task.blockerType && <div><dt>{t('보류 유형', 'Blocker type')}</dt>
+          <dd>{label(blockerTypeLabels[task.blockerType])}</dd></div>}
+        {task.blockerNextActionType && <div><dt>{t('다음 해소 조치', 'Next unblock action')}</dt>
+          <dd>{label(blockerActionLabels[task.blockerNextActionType])}</dd></div>}
+        {task.blockerReviewDate && <div><dt>{t('다시 확인할 날짜', 'Review date')}</dt>
+          <dd>{task.blockerReviewDate}</dd></div>}
         {task.stopReason && <div><dt>{t('종료 사유', 'Closure reason')}</dt><dd>{task.stopReason}</dd></div>}
       </dl>
       <div className="task-next-actions"><TaskActions task={task} group={group} pending={pending} onAction={transition} />
         {group?.role === 'LEADER' && task.status !== 'REQUESTED' && !isTerminal(task.status) && <section className="task-action-section"><h2>{t('다음 단계 · 담당자 지정', 'Next step · Assign owner')}</h2><div className="task-assignee-form"><select value={assigneeMemberId} onChange={(event) => setAssigneeMemberId(event.target.value)}><option value="">{t('담당자 선택', 'Select assignee')}</option>{members.map((member) => <option value={member.id} key={member.id}>{member.nickname} · {member.role === 'LEADER' ? t('팀장', 'Leader') : t('팀원', 'Member')}</option>)}</select><button className="secondary" type="button" disabled={pending || !assigneeMemberId} onClick={assign}>{t('담당자 저장', 'Save assignee')}</button></div></section>}
       </div>
+      {group?.type === 'TEAM' && <section className="task-action-section weekly-objective-section">
+        <h2>{t('이번 주 목표 연결', 'Weekly objective')}</h2>
+        <p>{t(
+          '이 업무가 이번 주 어떤 목표에 기여하는지 연결하면 AI 리포트가 목표별 위험과 성과를 설명할 수 있습니다.',
+          'Link this task to a weekly objective so the AI report can explain goal-level progress and risk.',
+        )}</p>
+        <div className="task-assignee-form">
+          <select value={selectedObjectiveId}
+            disabled={pending || isTerminal(task.status)}
+            onChange={(event) => setSelectedObjectiveId(event.target.value)}>
+            <option value="">{t('목표 연결 없음', 'No objective')}</option>
+            {weeklyObjectives.map((objective) =>
+              <option value={objective.id} key={objective.id}>{objective.title}</option>)}
+          </select>
+          <button className="secondary" type="button"
+            disabled={pending || isTerminal(task.status)} onClick={linkWeeklyObjective}>
+            {t('목표 연결 저장', 'Save objective link')}
+          </button>
+        </div>
+        {group.role === 'LEADER' && <>
+          <form className="task-checklist-form" onSubmit={createWeeklyObjective}>
+            <input maxLength={120} value={newObjectiveTitle}
+              disabled={pending || weeklyObjectives.length >= 3}
+              onChange={(event) => setNewObjectiveTitle(event.target.value)}
+              placeholder={t('이번 주 목표 추가', 'Add a weekly objective')} />
+            <button className="secondary" disabled={
+              pending || weeklyObjectives.length >= 3 || !newObjectiveTitle.trim()
+            }>{t('추가', 'Add')}</button>
+          </form>
+          <div className="weekly-objective-list">{weeklyObjectives.map((objective) =>
+            <div key={objective.id}><span>{objective.position}. {objective.title}</span>
+              <div><button type="button" disabled={pending}
+                onClick={() => void renameWeeklyObjective(objective)}>{t('수정', 'Edit')}</button>
+              <button type="button" className="danger" disabled={pending}
+                onClick={() => void deleteWeeklyObjective(objective)}>{t('삭제', 'Delete')}</button>
+              </div></div>)}</div>
+        </>}
+      </section>}
       <ChecklistSection
         checklist={checklist}
         writable={canWriteChecklist(task, group)}
@@ -325,7 +511,60 @@ export function TaskDetailPage() {
       />
       <section className="task-action-section"><h2>{t('상태 이력', 'Status history')}</h2><div className="task-history-list">{histories.map((history) => <div className="task-history-item" key={history.id}><span className="task-history-dot" /><div><strong>{history.fromStatus ? `${label(statusLabels[history.fromStatus])} → ` : ''}{label(statusLabels[history.toStatus])}</strong><small>{t(`멤버 #${history.changedByMemberId}`, `Member #${history.changedByMemberId}`)} · {formatDate(history.createdAt, language)}</small>{history.reason && <p>{history.reason}</p>}</div></div>)}</div></section>
     </>}
-  </section>{reasonAction && <Modal title={label(actionLabels[reasonAction])} description={t('업무 이력에 남을 사유를 입력해 주세요.', 'Enter a reason to keep in the task history.')} onClose={() => { setReasonAction(undefined); setActionReason(''); setError(''); }}><form className="form modal-form" onSubmit={(event) => { event.preventDefault(); void performTransition(reasonAction, actionReason); }}><label className="field"><span>{t('사유', 'Reason')}</span><textarea autoFocus required maxLength={500} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={t('팀원이 이해할 수 있도록 간단히 적어주세요.', 'Add a short explanation for the team.')} /></label>{error && <p className="error">{error}</p>}<div className="modal-actions"><button className="secondary" type="button" onClick={() => setReasonAction(undefined)}>{t('돌아가기', 'Back')}</button><button className="danger" disabled={pending || !actionReason.trim()}>{pending ? t('처리 중...', 'Processing...') : label(actionLabels[reasonAction])}</button></div></form></Modal>}</main></>;
+  </section>{reasonAction && <Modal title={label(actionLabels[reasonAction])}
+    description={t(
+      reasonAction === 'HOLD'
+        ? '보류 원인과 다음 조치, 다시 확인할 날짜를 구조화해 주세요.'
+        : '업무 이력에 남을 사유를 입력해 주세요.',
+      reasonAction === 'HOLD'
+        ? 'Record the blocker, next action, and review date.'
+        : 'Enter a reason to keep in the task history.',
+    )}
+    onClose={() => { setReasonAction(undefined); setActionReason(''); setError(''); }}>
+    <form className="form modal-form" onSubmit={(event) => {
+      event.preventDefault(); void performTransition(reasonAction, actionReason);
+    }}>
+      <label className="field"><span>{t('사유', 'Reason')}</span>
+        <textarea autoFocus required maxLength={500} value={actionReason}
+          onChange={(event) => setActionReason(event.target.value)}
+          placeholder={t(
+            '팀원이 이해할 수 있도록 간단히 적어주세요.',
+            'Add a short explanation for the team.',
+          )} />
+      </label>
+      {reasonAction === 'HOLD' && <>
+        <label className="field"><span>{t('보류 유형', 'Blocker type')}</span>
+          <select value={blockerType}
+            onChange={(event) => setBlockerType(event.target.value as BlockerType)}>
+            {Object.entries(blockerTypeLabels).map(([value, valueLabel]) =>
+              <option key={value} value={value}>{label(valueLabel)}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>{t('다음 해소 조치', 'Next unblock action')}</span>
+          <select value={blockerNextActionType}
+            onChange={(event) =>
+              setBlockerNextActionType(event.target.value as BlockerNextActionType)}>
+            {Object.entries(blockerActionLabels).map(([value, valueLabel]) =>
+              <option key={value} value={value}>{label(valueLabel)}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>{t('다시 확인할 날짜', 'Review date')}</span>
+          <input type="date" required min={todayDate()} value={blockerReviewDate}
+            onChange={(event) => setBlockerReviewDate(event.target.value)} />
+        </label>
+      </>}
+      {error && <p className="error">{error}</p>}
+      <div className="modal-actions">
+        <button className="secondary" type="button"
+          onClick={() => setReasonAction(undefined)}>{t('돌아가기', 'Back')}</button>
+        <button className="danger"
+          disabled={pending || !actionReason.trim()
+            || (reasonAction === 'HOLD' && !blockerReviewDate)}>
+          {pending ? t('처리 중...', 'Processing...') : label(actionLabels[reasonAction])}
+        </button>
+      </div>
+    </form>
+  </Modal>}</main></>;
 }
 
 function TaskWorkflow({ status }: { status: TaskResponse['status'] }) {
@@ -467,4 +706,18 @@ function withinCommentEditWindow(createdAt: string) {
 
 function formatDate(value: string, language: 'ko' | 'en') {
   return new Intl.DateTimeFormat(language === 'ko' ? 'ko-KR' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+}
+
+function todayDate() {
+  return localDate(new Date());
+}
+
+function tomorrowDate() {
+  const value = new Date();
+  value.setDate(value.getDate() + 1);
+  return localDate(value);
+}
+
+function localDate(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 }

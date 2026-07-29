@@ -28,6 +28,65 @@ export async function request<T>(path: string, init: RequestInit = {}, authentic
   return response.status === 204 ? (undefined as T) : response.json();
 }
 
+export type DownloadedFile = { blob: Blob; filename: string };
+
+export async function requestFile(
+  path: string,
+  init: RequestInit = {},
+  authenticated = false,
+): Promise<DownloadedFile> {
+  const headers = new Headers(init.headers);
+  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  if (authenticated) {
+    const token = accessToken.get();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' });
+  } catch {
+    throw {
+      code: 'NETWORK_ERROR',
+      message: localeText(
+        '서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        'Could not connect to the server. Try again shortly.',
+      ),
+    } satisfies ApiError;
+  }
+  if (!response.ok) {
+    throw await response.json().catch(() => ({
+      message: localeText(
+        '파일을 다운로드하지 못했습니다.',
+        'The file could not be downloaded.',
+      ),
+    })) as ApiError;
+  }
+  return {
+    blob: await response.blob(),
+    filename: responseFilename(response.headers.get('Content-Disposition')),
+  };
+}
+
+export function saveDownloadedFile(file: DownloadedFile) {
+  const url = URL.createObjectURL(file.blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = file.filename;
+  anchor.hidden = true;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function responseFilename(disposition: string | null) {
+  const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try { return decodeURIComponent(encoded); } catch { /* use the plain fallback */ }
+  }
+  return disposition?.match(/filename="?([^";]+)"?/i)?.[1] ?? 'report.pdf';
+}
+
 export function serviceUrl(path: string) {
   return `${API_BASE.replace(/\/api\/v1$/, '')}${path}`;
 }

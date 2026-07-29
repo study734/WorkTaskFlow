@@ -96,6 +96,32 @@ export function LandingPage() {
       </div>
     </section>
 
+    <section className="landing-ai-sample" aria-labelledby="ai-sample-title">
+      <div className="landing-ai-sample-heading">
+        <span className="landing-section-label">{t('유료 플랜 미리보기 · 예시 데이터', 'Paid plan preview · Sample data')}</span>
+        <h2 id="ai-sample-title">{t('숫자를 나열하는 리포트에서, 다음 행동이 보이는 리포트로.', 'From a list of numbers to a report with clear next actions.')}</h2>
+        <p>{t('아래 내용은 고정된 예시이며 공개 OpenAI API를 호출하지 않습니다.', 'This is a fixed example and does not call the OpenAI API.')}</p>
+      </div>
+      <div className="landing-ai-compare">
+        <article>
+          <small>{t('기본 리포트 · AI 미사용', 'Basic report · No AI')}</small>
+          <h3>{t('주간 업무 현황', 'Weekly task metrics')}</h3>
+          <dl><div><dt>{t('업무', 'Tasks')}</dt><dd>18</dd></div><div><dt>{t('완료율', 'Completion')}</dt><dd>72%</dd></div><div><dt>{t('지연', 'Overdue')}</dt><dd>3</dd></div></dl>
+          <p>{t('기간별 확정 통계와 업무 목록을 PDF로 저장합니다.', 'Save finalized period metrics and task lists as PDF.')}</p>
+        </article>
+        <article className="paid-preview">
+          <small>{t('AI 주간 리포트 · 유료', 'AI weekly report · Paid')}</small>
+          <h3>{t('완료 흐름은 안정적이지만 지연 업무 확인이 필요합니다.', 'Completion is steady, but overdue work needs attention.')}</h3>
+          <ul>
+            <li>{t('핵심 흐름: 완료율과 기한 준수율을 함께 설명', 'Highlight: explains completion and on-time trends together')}</li>
+            <li>{t('위험: 서버가 판정한 지연 근거만 인용', 'Risk: cites only server-determined overdue evidence')}</li>
+            <li>{t('다음 행동: 다음 주 우선 확인 항목 제안', 'Next action: suggests what to check first next week')}</li>
+          </ul>
+          <p>{t('업무 제목·댓글·닉네임 없이 비식별 확정 통계만 사용합니다.', 'Uses only de-identified finalized metrics, without titles, comments, or nicknames.')}</p>
+        </article>
+      </div>
+    </section>
+
     <section id="workflow" className="landing-workflow">
       <div><span className="landing-section-label">{t('가볍게 시작하기', 'Start lightly')}</span><h2>{t('설치 없이 시작하고, 필요할 때 앱으로.', 'Start in the browser. Make it an app when ready.')}</h2><p>{t('회원가입 후 바로 브라우저에서 사용할 수 있습니다. 자주 사용한다면 별도 앱스토어 없이 현재 기기에 PWA 앱을 만들 수 있습니다.', 'Use it immediately after signing up. If it becomes part of your routine, add the PWA to your device without an app store.')}</p><button type="button" onClick={() => setInstallOpen(true)} disabled={installed}>{installed ? t('이미 앱으로 사용 중', 'Already installed') : t('이 기기에 APP 만들기', 'Make this an app')}</button></div>
       <ol><li><b>1</b><span><strong>{t('그룹 만들기', 'Create a group')}</strong><small>{t('멤버를 초대하고 역할을 정합니다.', 'Invite members and set roles.')}</small></span></li><li><b>2</b><span><strong>{t('업무 흐름 연결', 'Connect the workflow')}</strong><small>{t('요청·승인·담당·완료를 기록합니다.', 'Track request, approval, ownership, and completion.')}</small></span></li><li><b>3</b><span><strong>{t('한눈에 확인', 'Stay aligned')}</strong><small>{t('대시보드와 캘린더로 지금을 봅니다.', 'See the present in dashboards and calendars.')}</small></span></li></ol>
