@@ -408,7 +408,7 @@ class WeeklyReportModuleTest {
         assertThat(stored.getInputTokens()).isEqualTo(420);
         assertThat(stored.getOutputTokens()).isEqualTo(80);
         assertThat(stored.getTotalTokens()).isEqualTo(500);
-        assertThat(stored.getPromptVersion()).isEqualTo("v5");
+        assertThat(stored.getPromptVersion()).isEqualTo("v6");
         assertThat(stored.getSchemaVersion()).isEqualTo("v4");
     }
 

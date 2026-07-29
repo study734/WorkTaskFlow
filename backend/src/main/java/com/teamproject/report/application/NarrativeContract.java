@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
  */
 @Component
 public class NarrativeContract {
-    public static final String PROMPT_VERSION = "v5";
+    public static final String PROMPT_VERSION = "v6";
     public static final String SCHEMA_VERSION = "v4";
     private static final Pattern PLACEHOLDER =
             Pattern.compile("\\{\\{([A-Za-z0-9._-]+)}}");
@@ -67,24 +67,27 @@ public class NarrativeContract {
                 Write in this editorial order: dominant change, operational consequence, decision,
                 then action. Prioritize the largest negative movement, highest-severity signal, or
                 blocked objective; mention a positive result only when it changes the decision.
-                The headline must be one decisive, non-numeric sentence. The summary must state a
-                specific diagnosis and why it matters now, using at least two supplied evidence
-                keys when the input provides them. Never use generic filler such as "check the
-                workflow", "monitor progress", or "review priorities" without naming the affected
-                signal, consequence, and next checkpoint.
+                The headline must be one decisive, non-numeric sentence naming the single thing
+                most worth the leader's attention. The summary must not restate the headline in
+                other words. It names the dominant signal, gives the specific diagnosis behind it,
+                and says why it matters now, using at least two supplied evidence keys when the
+                input provides them. Never use generic filler such as "check the workflow",
+                "monitor progress", or "review priorities" without naming the affected signal,
+                consequence, and next checkpoint.
                 Put directly observed facts in changes and connect each change to its direction
                 or operational consequence. Put only evidence-backed outcomes in achievements.
-                For each risk explain the signal, likely impact, and next condition to verify
-                without claiming an unproven cause. Do not repeat a server risk label as the whole
-                risk. Leader decisions must be answerable choices or approvals with the consequence
-                of delaying the decision. Propose no more than three prioritized, non-duplicative
-                actions.
+                Each risk states the signal, the likely operational impact, and the observation
+                that would confirm or rule it out, without claiming an unproven cause. Do not
+                repeat a server risk label as the whole risk. Leader decisions must be answerable
+                choices or approvals with the consequence of delaying the decision. Propose no
+                more than three prioritized, non-duplicative actions.
                 Do not restate the same finding across summary, changes, risks, decisions, and
                 actions. Each section must add a new layer: diagnosis, movement, consequence,
                 choice, or ownership.
                 Every action must set ownerRef to one supplied MEMBER- reference and state what
-                to do, when it should be checked using an evidence placeholder or a
-                non-numeric relative window, and which risk it reduces.
+                to do, when it should be checked, and which risk it reduces. State the checkpoint
+                as an evidence placeholder or an explicit relative window such as "before the next
+                weekly review"; never leave the timing implied.
                 Use only supplied evidence keys and de-identified TASK-, GOAL-, and MEMBER- refs.
                 Never invent or calculate a number or date. Any numeric or date claim must use an
                 exact placeholder such as {{tasks.delayed}} or {{task.TASK-01.blockerReviewDate}}.

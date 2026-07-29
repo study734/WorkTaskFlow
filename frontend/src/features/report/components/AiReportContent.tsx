@@ -186,9 +186,14 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
 
     {report.comparison.available ? <section className="ai-report-comparison">
       <strong>{t('지난주 대비', 'Compared with last week')}</strong>
-      <span>{t('완료 업무', 'Completed')} {delta(report.comparison.completedTasksDelta)}</span>
-      <span>{t('지연 업무', 'Overdue')} {delta(report.comparison.delayedTasksDelta)}</span>
-      <span>{t('완료율', 'Completion')} {delta(report.comparison.completionRateDeltaPercent, '%p')}</span>
+      <div className="ai-report-delta-row">
+        <Delta label={t('완료 업무', 'Completed')}
+          value={report.comparison.completedTasksDelta} />
+        <Delta label={t('지연 업무', 'Overdue')}
+          value={report.comparison.delayedTasksDelta} invert />
+        <Delta label={t('완료율', 'Completion')}
+          value={report.comparison.completionRateDeltaPercent} suffix="%p" />
+      </div>
     </section> : <section className="ai-report-baseline">
       <strong>BASELINE</strong>
       <span>{t(
@@ -230,6 +235,10 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
     </section>
 
     <ReportSection title={t('서버 확인 위험 신호', 'Server-confirmed risk signals')}
+      note={t(
+        '저장된 업무 수치와 상태 규칙으로 확인한 사실입니다.',
+        'These are confirmed from stored task metrics and server rules.',
+      )}
       empty={t('서버 규칙으로 확인된 위험 신호가 없습니다.', 'No risk signal was confirmed by server rules.')}>
       {visibleServerRisks.map((risk) =>
         <div className="ai-report-item server-risk"
@@ -240,10 +249,6 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
           </span>
           <div>
             <strong>{riskSignalLabel(risk.signal.code, t)}</strong>
-            <p>{t(
-              '저장된 업무 수치와 상태 규칙으로 확인한 사실입니다.',
-              'This is confirmed from stored task metrics and server rules.',
-            )}</p>
           </div>
           {!print && <LinkedTaskList tasks={risk.tasks} />}
           <EvidenceDetails item={{
@@ -257,11 +262,11 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
     {showMemberExceptions && <MemberExceptions items={riskProjection.memberExceptions} />}
 
     <ReportSection title={t('AI 위험 후보', 'AI risk candidates')}
-      empty={t('AI가 제안한 위험 후보가 없습니다.', 'AI suggested no risk candidate.')}>
-      <p className="ai-report-section-note">{t(
+      note={t(
         '아래 내용은 서버 근거를 바탕으로 AI가 작성한 해석이며, 원인을 단정하지 않습니다.',
         'The items below are AI-written interpretations of server evidence and do not assert causes.',
-      )}</p>
+      )}
+      empty={t('AI가 제안한 위험 후보가 없습니다.', 'AI suggested no risk candidate.')}>
       {visibleAiRisks.map((risk) =>
         <RiskCard key={risk.frozenIndex} projection={risk}
           evidence={report.evidence} preservePrintRiskMarkup={print} />)}
@@ -409,14 +414,17 @@ function changeLabel(value: string, t: (ko: string, en: string) => string) {
   } as Record<string, string>)[value] ?? value;
 }
 
-function ReportSection({ title, children, empty }: {
+function ReportSection({ title, children, empty, note }: {
   title: string;
   children: ReactNode;
   empty?: string;
+  /** 항목마다 같은 문장을 반복하지 않도록 섹션에 한 번만 붙이는 안내다. */
+  note?: string;
 }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
   return <section className="ai-report-section">
     <h4>{title}</h4>
+    {note && <p className="ai-report-section-note">{note}</p>}
     {hasChildren ? <div className="ai-report-section-list">{children}</div>
       : empty && <p className="ai-report-empty">{empty}</p>}
   </section>;
@@ -690,6 +698,30 @@ function EvidenceDetails({ item, evidence }: {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><b>{value}</b></div>;
+}
+
+/**
+ * 부호가 아니라 방향을 읽는다. 완료 업무 감소와 지연 업무 증가는 부호가 반대지만 둘 다 악화이므로
+ * 후자처럼 증가가 나쁜 지표는 `invert`로 표시한다. 색만으로 뜻을 전달하지 않도록 부호와
+ * 개선·악화 문구를 항상 함께 둔다.
+ */
+function Delta({ label, value, suffix = '', invert = false }: {
+  label: string;
+  value?: number;
+  suffix?: string;
+  invert?: boolean;
+}) {
+  const { t } = useLanguage();
+  const tone = value == null || value === 0
+    ? 'flat'
+    : (value > 0) !== invert ? 'good' : 'bad';
+  return <div className={`ai-report-delta ${tone}`}>
+    <span>{label}</span>
+    <b>{delta(value, suffix)}</b>
+    <small>{tone === 'flat'
+      ? t('변화 없음', 'no change')
+      : tone === 'good' ? t('개선', 'improved') : t('악화', 'worsened')}</small>
+  </div>;
 }
 
 function percent(value?: number) {

@@ -748,7 +748,7 @@ body { background: radial-gradient(circle at 80% -10%, #eeeefe 0, transparent 26
 .ai-report-reader-toolbar .report-controls { flex: 1; margin: 0; }
 .ai-report-reader-toolbar .report-controls .report-download { margin-left: 0; }
 .ai-report-reader-toolbar .report-state { flex: 0 0 auto; margin-bottom: 3px; }
-.ai-report-document { margin-top: 0; color: #24212e; }
+.ai-report-document { margin-top: 0; color: #24212e; word-break: keep-all; overflow-wrap: break-word; }
 .ai-report-executive-brief { margin: 18px 0; padding: 22px 24px; border-left: 5px solid #6254c7; border-radius: 4px 14px 14px 4px; background: linear-gradient(135deg, #f5f2ff, #fbfaff); }
 .ai-report-executive-brief > span { color: #6254c7; font-size: 11px; font-weight: 900; letter-spacing: .08em; }
 .ai-report-executive-brief > strong { display: block; margin-top: 8px; font-size: 20px; line-height: 1.45; }
@@ -757,7 +757,7 @@ body { background: radial-gradient(circle at 80% -10%, #eeeefe 0, transparent 26
 .ai-report-baseline strong { color: #5548a7; letter-spacing: .08em; }
 .ai-report-baseline span { color: #5d566b; font-size: 12px; }
 .ai-report-item.server-risk { padding-left: 78px; border-left-color: #b45e32; background: #fff8f2; }
-.ai-report-section-note { margin: 0; color: var(--app-muted); font-size: 12px; line-height: 1.55; }
+.ai-report-section-note { margin: 0 0 10px; color: var(--app-muted); font-size: 12px; line-height: 1.55; }
 .ai-report-document-header { display: flex; justify-content: space-between; gap: 20px; padding: 22px; border: 1px solid #ddd8ed; border-radius: 16px; background: linear-gradient(135deg, #fff, #f7f4ff); }
 .ai-report-document-header h1 { margin: 6px 0 8px; font-size: 25px; }
 .ai-report-document-header p { margin: 0; max-width: 780px; color: var(--app-muted); }
@@ -770,13 +770,24 @@ body { background: radial-gradient(circle at 80% -10%, #eeeefe 0, transparent 26
 .ai-report-metrics div { padding: 14px; border: 1px solid #e1deea; border-radius: 12px; background: #fff; }
 .ai-report-metrics span { display: block; color: var(--app-muted); font-size: 12px; }
 .ai-report-metrics b { display: block; margin-top: 3px; font-size: 22px; }
-.ai-report-comparison { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 13px 16px; border-radius: 12px; background: #f3f1f9; }
+.ai-report-comparison { display: grid; gap: 10px; padding: 14px 16px; border-radius: 12px; background: #f3f1f9; }
+.ai-report-comparison > strong { font-size: 13px; }
+.ai-report-delta-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ai-report-delta { display: grid; gap: 2px; min-width: 0; }
+.ai-report-delta > span { color: var(--app-muted); font-size: 12px; }
+.ai-report-delta > b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.ai-report-delta > small { font-size: 11px; font-weight: 700; }
+.ai-report-delta.good > b, .ai-report-delta.good > small { color: #1f6d46; }
+.ai-report-delta.bad > b, .ai-report-delta.bad > small { color: #b3263e; }
+.ai-report-delta.flat > b, .ai-report-delta.flat > small { color: var(--app-muted); }
 .ai-report-section { margin-top: 24px; }
 .ai-report-section h4 { margin: 0 0 10px; font-size: 17px; }
 .ai-report-section-list { display: grid; gap: 10px; }
 .ai-report-change-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
 .ai-report-change-grid .ai-report-item { min-height: 100%; border-top: 3px solid #8172cb; background: #faf9fd; }
-.ai-report-priority-grid, .ai-report-decision-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.ai-report-decision-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+/* 우선 행동은 P1→P2→P3 순위라 한 열로 둔다. 다중 열은 읽기 순서를 뭉갠다. */
+.ai-report-priority-grid { display: grid; gap: 10px; }
 .ai-report-priority-grid .ai-report-item.action { grid-template-columns: 38px minmax(0, 1fr); align-content: start; }
 .ai-report-priority-grid .ai-report-item.action .ai-report-evidence { grid-column: 1 / -1; }
 .ai-report-decision-grid .ai-report-item.decision { min-height: 100%; }

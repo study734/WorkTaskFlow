@@ -1169,6 +1169,54 @@ test('호환되지 않는 캐시 응답은 대시보드를 백지화하지 않�
   expect(pageErrors).toEqual([]);
 });
 
+test('지난주 대비 변화를 부호가 아니라 방향으로 읽는다', async ({ page, context }) => {
+  const api = new ReportApiFixture();
+  api.report.comparison = {
+    available: true,
+    totalTasksDelta: 0,
+    completedTasksDelta: -2,
+    delayedTasksDelta: 2,
+    onHoldTasksDelta: 0,
+    completionRateDeltaPercent: 0,
+    checklistCompletionRateDeltaPercent: 0,
+  };
+  await page.addInitScript(() => {
+    localStorage.setItem('accessToken', 'playwright-token');
+    localStorage.setItem('language', 'ko');
+  });
+  await context.route('**/api/v1/**', (route) => api.handle(route));
+
+  await page.goto('/groups/1/reports/ai-weekly/1');
+
+  const deltas = page.locator('.ai-report-delta');
+  await expect(deltas).toHaveCount(3);
+  // 완료 감소와 지연 증가는 부호가 반대지만 둘 다 악화다.
+  await expect(deltas.nth(0)).toHaveClass(/bad/);
+  await expect(deltas.nth(0)).toContainText('-2');
+  await expect(deltas.nth(1)).toHaveClass(/bad/);
+  await expect(deltas.nth(1)).toContainText('+2');
+  await expect(deltas.nth(2)).toHaveClass(/flat/);
+  await expect(deltas.nth(2)).toContainText('변화 없음');
+});
+
+test('같은 안내 문장을 위험 항목마다 반복하지 않는다', async ({ page, context }) => {
+  const api = new ReportApiFixture();
+  await page.addInitScript(() => {
+    localStorage.setItem('accessToken', 'playwright-token');
+    localStorage.setItem('language', 'ko');
+  });
+  await context.route('**/api/v1/**', (route) => api.handle(route));
+
+  await page.goto('/groups/1/reports/ai-weekly/1');
+  const serverRisks = page.locator('.ai-report-item.server-risk');
+  await expect(serverRisks).toHaveCount(2);
+  // 안내는 섹션에 한 번만 있고 항목에는 없다.
+  await expect(page.getByText('저장된 업무 수치와 상태 규칙으로 확인한 사실입니다.'))
+    .toHaveCount(1);
+  await expect(serverRisks.first())
+    .not.toContainText('저장된 업무 수치와 상태 규칙으로 확인한 사실입니다.');
+});
+
 function item(textTemplate: string, evidenceKeys: string[]) {
   return { textTemplate, evidenceKeys, taskRefs: [], objectiveRefs: [] };
 }
