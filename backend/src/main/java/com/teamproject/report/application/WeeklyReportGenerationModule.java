@@ -367,7 +367,10 @@ public class WeeklyReportGenerationModule {
                         .map(group -> group.getName()).orElse("Unknown group"), snapshot),
                 narrative == null ? null : contract.view(narrative, snapshot),
                 report.getPublicationStatus() == WeeklyReport.PublicationStatus.DRAFT
-                        ? narrative : null);
+                        ? narrative : null,
+                // 등급 근거가 동결된 리포트만 산정 기준을 함께 보낸다.
+                snapshot.evidence().containsKey("members.ratedCount")
+                        ? MemberPerformanceRule.describe(report.getLanguage()) : null);
     }
 
     private ReportSnapshot snapshot(WeeklyReport report) {

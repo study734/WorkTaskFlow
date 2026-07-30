@@ -6,6 +6,7 @@ import com.teamproject.group.domain.GroupMember;
 import com.teamproject.group.domain.GroupMemberRepository;
 import com.teamproject.group.domain.GroupRepository;
 import com.teamproject.report.application.AiNarrativeGenerator;
+import com.teamproject.report.application.ReportPeriod;
 import com.teamproject.report.application.ReportContracts.AiGenerationResult;
 import com.teamproject.report.application.ReportContracts.ActionNarrativeItem;
 import com.teamproject.report.application.ReportContracts.EditWeeklyReportDraft;
@@ -28,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
@@ -257,9 +259,7 @@ class WeeklyReportLifecycleTest {
         ReflectionTestUtils.setField(group, "membershipPlan", Group.MembershipPlan.PAID);
         group = groups.save(group);
         GroupMember leader = members.save(GroupMember.leader(group, user));
-        LocalDate weekStart = LocalDate.now()
-                .with(TemporalAdjusters.previous(DayOfWeek.MONDAY))
-                .minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Fixture fixture = new Fixture(user, group, leader, weekStart);
         addTaskInReportWeek(fixture, "초기 업무");
         return fixture;

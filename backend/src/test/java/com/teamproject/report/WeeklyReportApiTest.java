@@ -10,6 +10,7 @@ import com.teamproject.group.domain.GroupMember;
 import com.teamproject.group.domain.GroupMemberRepository;
 import com.teamproject.group.domain.GroupRepository;
 import com.teamproject.report.application.AiNarrativeGenerator;
+import com.teamproject.report.application.ReportPeriod;
 import com.teamproject.report.application.ReportContracts.*;
 import com.teamproject.report.domain.WeeklyReport;
 import com.teamproject.report.domain.WeeklyReportRepository;
@@ -32,6 +33,7 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
@@ -64,8 +66,7 @@ class WeeklyReportApiTest {
     @Test
     void freeGroupIsLockedAndPaidLeaderCreatesThenReadsCachedReport() throws Exception {
         Fixture free = team(false);
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         mvc.perform(post("/api/v1/groups/{groupId}/reports/ai-weekly", free.group().getId())
                         .header("Authorization", bearer(free.token()))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -195,8 +196,7 @@ class WeeklyReportApiTest {
 
     @Test
     void mapsGenerationConflictAndProviderFailuresToHttpContract() throws Exception {
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Fixture generating = team(true);
         java.time.Instant startedAt = java.time.Instant.now();
         WeeklyReport inProgress = new WeeklyReport(generating.group(), generating.leader(),

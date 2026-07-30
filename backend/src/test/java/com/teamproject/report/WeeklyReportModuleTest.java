@@ -12,6 +12,7 @@ import com.teamproject.report.application.ReportContracts.GenerateWeeklyReport;
 import com.teamproject.report.application.ReportContracts.Narrative;
 import com.teamproject.report.application.ReportContracts.NarrativeItem;
 import com.teamproject.report.application.ReportContracts.WeeklyReportView;
+import com.teamproject.report.application.ReportPeriod;
 import com.teamproject.report.application.WeeklyReportModule;
 import com.teamproject.common.exception.ApplicationException;
 import com.teamproject.report.domain.WeeklyReport;
@@ -29,6 +30,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -58,6 +60,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
         "app.ai-report.schema-version=v2"
 })
 class WeeklyReportModuleTest {
+    // app.ai-report.generation-lease(4m)보다 길어야 회수 경로가 열린다.
+    private static final long EXPIRED_LEASE_SECONDS = 241;
+
     @Autowired WeeklyReportModule reports;
     @Autowired UserRepository users;
     @Autowired GroupRepository groups;
@@ -69,8 +74,7 @@ class WeeklyReportModuleTest {
     @Test
     void paidLeaderGeneratesOneCompletedWeeklyReportAndReusesIt() {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "외부 전송 금지 제목",
                 "외부 전송 금지 설명", Task.Priority.HIGH, weekStart.plusDays(3).atTime(18, 0));
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));
@@ -110,8 +114,7 @@ class WeeklyReportModuleTest {
     @Test
     void storesKoreanAndEnglishAsIndependentReportsForTheSameWeek() {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "언어별 리포트 대상",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));
@@ -148,8 +151,7 @@ class WeeklyReportModuleTest {
     @Test
     void reclaimsExpiredGeneratingLeaseAndIncrementsAttemptCount() {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "lease 회수 대상",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));
@@ -162,7 +164,7 @@ class WeeklyReportModuleTest {
                 "{}", "v2", "v2", LocalDateTime.now());
         stale.start("{}", "v2", "v2", startedAt, LocalDateTime.now());
         ReflectionTestUtils.setField(stale, "generationStartedAt",
-                Instant.now().minusSeconds(121));
+                Instant.now().minusSeconds(EXPIRED_LEASE_SECONDS));
         stale = weeklyReports.saveAndFlush(stale);
         Long staleId = stale.getId();
         assertThat(stale.getAttemptCount()).isEqualTo(1);
@@ -186,8 +188,7 @@ class WeeklyReportModuleTest {
     @Test
     void reclaimedAttemptCannotBeOverwrittenByTheExpiredWorker() throws Exception {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "lease 경합 대상",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));
@@ -229,7 +230,7 @@ class WeeklyReportModuleTest {
                             weekStart, weekStart.plusDays(6), "ko", 1)
                     .orElseThrow();
             ReflectionTestUtils.setField(generating, "generationStartedAt",
-                    Instant.now().minusSeconds(121));
+                    Instant.now().minusSeconds(EXPIRED_LEASE_SECONDS));
             weeklyReports.saveAndFlush(generating);
 
             WeeklyReportView reclaimed = reports.generateWeeklyAiReport(command);
@@ -251,8 +252,7 @@ class WeeklyReportModuleTest {
     @Test
     void snapshotUsesInclusiveMondayThroughSundayGroupLocalDates() {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task sunday = new Task(fixture.group(), fixture.leader(), "일요일 경계",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(sunday, "createdAt", weekStart.plusDays(6).atTime(23, 59));
@@ -280,8 +280,7 @@ class WeeklyReportModuleTest {
     @Test
     void failedGenerationCanRetryButInvalidEvidenceCannotBeStored() {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "비식별 집계 대상",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));
@@ -327,8 +326,7 @@ class WeeklyReportModuleTest {
     @ValueSource(strings = {"업무 1건 요약", "완료율 50% 요약", "2026-07-20 기준 요약"})
     void numericNarrativeIsRejectedAndItsUsageIsStoredForTheFailedAttempt(String numericHeadline) {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "비식별 집계 대상",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));
@@ -362,8 +360,7 @@ class WeeklyReportModuleTest {
     @Test
     void retryKeepsOnlyTheLatestAttemptMetadataAndCompletesWithV2Contract() {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "재시도 집계 대상",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));
@@ -408,15 +405,14 @@ class WeeklyReportModuleTest {
         assertThat(stored.getInputTokens()).isEqualTo(420);
         assertThat(stored.getOutputTokens()).isEqualTo(80);
         assertThat(stored.getTotalTokens()).isEqualTo(500);
-        assertThat(stored.getPromptVersion()).isEqualTo("v6");
+        assertThat(stored.getPromptVersion()).isEqualTo("v8");
         assertThat(stored.getSchemaVersion()).isEqualTo("v4");
     }
 
     @Test
     void concurrentFailedRetriesAllowOnlyOneNewGeneration() throws Exception {
         Fixture fixture = paidTeam();
-        LocalDate weekStart = LocalDate.now().with(
-                TemporalAdjusters.previous(DayOfWeek.MONDAY)).minusWeeks(1);
+        LocalDate weekStart = ReportPeriod.lastCompletedWeekStart("Asia/Seoul", Clock.systemUTC());
         Task task = new Task(fixture.group(), fixture.leader(), "동시 요청 집계",
                 null, Task.Priority.NORMAL, null);
         ReflectionTestUtils.setField(task, "createdAt", weekStart.plusDays(1).atTime(9, 0));

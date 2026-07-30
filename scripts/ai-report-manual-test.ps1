@@ -3,7 +3,8 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('start', 'stop', 'reset', 'status')]
     [string]$Action = 'start',
-    [switch]$OpenBrowser
+    [switch]$OpenBrowser,
+    [switch]$RealAi
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,6 +125,22 @@ function Start-Environment {
         $env:AI_REPORT_ENABLED = 'false'
         $env:MAIL_ENABLED = 'false'
         $env:DEMO_ENABLED = 'false'
+        if ($RealAi) {
+            # 실제 provider 호출은 과금된다. .env의 키만 읽고 값은 출력하지 않는다.
+            $envFile = Join-Path $RepositoryRoot '.env'
+            if (-not (Test-Path -LiteralPath $envFile)) {
+                throw "-RealAi requires $envFile with OPENAI_API_KEY."
+            }
+            foreach ($line in Get-Content -LiteralPath $envFile) {
+                if ($line -match '^\s*(OPENAI_API_KEY|OPENAI_MODEL|OPENAI_REQUEST_TIMEOUT)\s*=\s*(.+)$') {
+                    Set-Item -Path "env:$($Matches[1])" -Value $Matches[2].Trim()
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
+                throw 'OPENAI_API_KEY is empty; cannot run with -RealAi.'
+            }
+            $env:AI_REPORT_ENABLED = 'true'
+        }
 
         $backendLauncher = Start-Process `
             -FilePath (Join-Path $BackendRoot 'mvnw.cmd') `
@@ -133,7 +150,7 @@ function Start-Environment {
             -RedirectStandardOutput $BackendLog `
             -RedirectStandardError $BackendErrorLog `
             -PassThru
-        $backendProcessId = Wait-ForPort $BackendPort 60 'Backend'
+        $backendProcessId = Wait-ForPort $BackendPort 180 'Backend'
 
         $frontendLauncher = Start-Process `
             -FilePath 'npm.cmd' `
@@ -159,7 +176,9 @@ function Start-Environment {
         Write-Host "URL      : http://127.0.0.1:$FrontendPort/login"
         Write-Host 'Username : ai_report_tester'
         Write-Host 'Password : password123!'
-        Write-Host 'AI       : deterministic Fake AI (no OpenAI key or network call)'
+        Write-Host ("AI       : " + $(if ($RealAi) {
+            "REAL OpenAI ($($env:OPENAI_MODEL ?? 'gpt-5.6-luna')) - billed per generation"
+        } else { 'deterministic Fake AI (no OpenAI key or network call)' }))
         Write-Host 'Database : disposable MySQL 8.4 on port 13307'
         Write-Host "Logs     : $RuntimeRoot"
 

@@ -16,27 +16,64 @@ public record ReportPeriod(
         Instant fromInclusive,
         Instant toExclusive) {
 
+    /**
+     * 주차는 달의 1일부터 7일씩 끊는다(요일 무시). 마지막 주차는 월말에서 잘려 1~3일이 될 수 있다.
+     * 대시보드 기간 필터와 같은 기준이며, 같은 "N주차"가 두 화면에서 같은 기간을 가리키게 한다.
+     */
+    private static final int[] WEEK_START_DAYS = { 1, 8, 15, 22, 29 };
+
+    /** 이전 주차. 1일 시작이면 지난달의 마지막 주차로 넘어간다. */
     public ReportPeriod previous() {
-        LocalDate previousStart = start.minusWeeks(1);
-        LocalDate previousEnd = end.minusWeeks(1);
-        return new ReportPeriod(previousStart, previousEnd, zone,
-                previousStart.atStartOfDay(zone).toInstant(),
-                previousEnd.plusDays(1).atStartOfDay(zone).toInstant());
+        LocalDate previousStart = start.getDayOfMonth() > 1
+                ? start.minusDays(7)
+                : lastWeekStartOf(start.minusMonths(1));
+        return of(previousStart, zone);
+    }
+
+    /** 마지막 주차가 잘린 경우 이전 주차와 길이가 달라 주간 비교가 성립하지 않는다. */
+    public boolean sameLengthAs(ReportPeriod other) {
+        return start.until(end).getDays() == other.start().until(other.end()).getDays();
     }
 
     public static ReportPeriod completedWeek(LocalDate weekStart, String timezone, Clock clock) {
-        if (weekStart == null || weekStart.getDayOfWeek() != DayOfWeek.MONDAY) {
+        if (weekStart == null || !isWeekStart(weekStart)) {
             throw new ApplicationException("AI_REPORT_WEEK_INVALID", HttpStatus.BAD_REQUEST,
-                    "주간 시작일은 월요일이어야 합니다.");
+                    "주간 시작일은 매월 1·8·15·22·29일이어야 합니다.");
         }
         ZoneId zone = ZoneId.of(timezone);
-        LocalDate end = weekStart.plusDays(6);
-        if (!end.isBefore(LocalDate.now(clock.withZone(zone)))) {
+        ReportPeriod period = of(weekStart, zone);
+        if (!period.end().isBefore(LocalDate.now(clock.withZone(zone)))) {
             throw new ApplicationException("AI_REPORT_WEEK_INCOMPLETE", HttpStatus.BAD_REQUEST,
                     "완료된 주간만 AI 리포트를 생성할 수 있습니다.");
         }
+        return period;
+    }
+
+    /** 오늘이 속한 주차의 직전 주차 시작일. 직전 주차는 항상 완료돼 있다. */
+    public static LocalDate lastCompletedWeekStart(String timezone, Clock clock) {
+        LocalDate today = LocalDate.now(clock.withZone(ZoneId.of(timezone)));
+        int startDay = 1 + 7 * ((today.getDayOfMonth() - 1) / 7);
+        return startDay > 1
+                ? today.withDayOfMonth(startDay - 7)
+                : lastWeekStartOf(today.minusMonths(1));
+    }
+
+    private static ReportPeriod of(LocalDate weekStart, ZoneId zone) {
+        LocalDate end = weekStart.withDayOfMonth(
+                Math.min(weekStart.getDayOfMonth() + 6, weekStart.lengthOfMonth()));
         return new ReportPeriod(weekStart, end, zone,
                 weekStart.atStartOfDay(zone).toInstant(),
                 end.plusDays(1).atStartOfDay(zone).toInstant());
+    }
+
+    private static boolean isWeekStart(LocalDate value) {
+        for (int day : WEEK_START_DAYS) {
+            if (value.getDayOfMonth() == day) return day <= value.lengthOfMonth();
+        }
+        return false;
+    }
+
+    private static LocalDate lastWeekStartOf(LocalDate month) {
+        return month.withDayOfMonth(1 + 7 * ((month.lengthOfMonth() - 1) / 7));
     }
 }

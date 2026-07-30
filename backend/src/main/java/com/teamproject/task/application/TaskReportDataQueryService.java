@@ -61,11 +61,20 @@ public class TaskReportDataQueryService implements TaskReportDataQuery {
         List<ActivityEvent> activity = periodEvents.stream()
                 .filter(value -> value.eventType() != EventType.BASELINE)
                 .toList();
-        List<TaskSnapshot> latest = latestSnapshots(activity, toExclusive);
+        // 이 한 번의 조회로 최신 스냅샷과 전체 이력을 모두 만든다. 이전에는 마지막 1건만 쓰고
+        // 나머지를 버렸다 — 체류 시간 계산이 그 버려진 구간을 필요로 한다.
+        List<TaskActivityEvent> history = taskHistory(activity, toExclusive);
+        List<TaskSnapshot> latest = history.stream()
+                .collect(Collectors.toMap(event -> event.getTask().getId(), Function.identity(),
+                        (left, right) -> right, LinkedHashMap::new))
+                .values().stream()
+                .map(this::snapshot)
+                .toList();
         List<TaskSnapshot> legacy = activity.isEmpty()
                 ? legacySnapshots(groupId, legacyFrom, legacyTo)
                 : List.of();
-        return new PeriodData(trackingStartedAt, activity, latest, legacy);
+        return new PeriodData(trackingStartedAt, activity, latest, legacy,
+                history.stream().map(this::event).toList());
     }
 
     @Override
@@ -93,17 +102,11 @@ public class TaskReportDataQueryService implements TaskReportDataQuery {
                 LinkedHashMap::new));
     }
 
-    private List<TaskSnapshot> latestSnapshots(List<ActivityEvent> activity, Instant toExclusive) {
+    private List<TaskActivityEvent> taskHistory(List<ActivityEvent> activity, Instant toExclusive) {
         if (activity.isEmpty()) return List.of();
         List<Long> taskIds = activity.stream().map(ActivityEvent::taskId).distinct().toList();
         return events.findAllByTaskIdInAndOccurredAtLessThanOrderByOccurredAtAscIdAsc(
-                        taskIds, LocalDateTime.ofInstant(toExclusive, ZoneOffset.UTC))
-                .stream()
-                .collect(Collectors.toMap(event -> event.getTask().getId(), Function.identity(),
-                        (left, right) -> right, LinkedHashMap::new))
-                .values().stream()
-                .map(this::snapshot)
-                .toList();
+                taskIds, LocalDateTime.ofInstant(toExclusive, ZoneOffset.UTC));
     }
 
     private List<TaskSnapshot> legacySnapshots(Long groupId, LocalDateTime from,

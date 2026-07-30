@@ -26,8 +26,18 @@ public final class ReportContracts {
     public record StatusMetrics(long requested, long todo, long inProgress, long onHold,
             long completed, long rejected, long cancelled, long delayed) {}
     public record DailyMetric(LocalDate date, long created, long completed) {}
+    // 구버전 metrics_json은 신규 컴포넌트를 0/null로 역직렬화한다. 등급은 evidence에
+    // member.*.grade 키가 있을 때만 노출하므로 과거 리포트에 지어낸 등급이 생기지 않는다.
     public record MemberMetric(String memberLabel, long assigned, long active, long completed,
-            long delayed, Integer onTimeRatePercent) {}
+            long delayed, Integer onTimeRatePercent,
+            long onHold, long checklistTotal, long checklistCompleted,
+            Integer completionRatePercent) {
+        public MemberMetric(String memberLabel, long assigned, long active, long completed,
+                long delayed, Integer onTimeRatePercent) {
+            this(memberLabel, assigned, active, completed, delayed, onTimeRatePercent,
+                    0, 0, 0, null);
+        }
+    }
     public record RiskSignal(String code, String severity, List<String> evidenceKeys) {}
     public enum HistoryCoverageStatus { COMPLETE, PARTIAL }
     public record HistoryCoverage(HistoryCoverageStatus status, Instant trackingStartedAt) {
@@ -68,7 +78,19 @@ public final class ReportContracts {
             Integer delayedTasksDelta,
             Integer onHoldTasksDelta,
             Integer completionRateDeltaPercent,
-            Integer checklistCompletionRateDeltaPercent) {}
+            Integer checklistCompletionRateDeltaPercent,
+            Integer onTimeRateDeltaPercent,
+            Integer averageCompletionHoursDelta) {
+        // 신규 컴포넌트가 없는 저장본은 null로 역직렬화되고, 근거 키도 그때는 생성되지 않는다.
+        public ComparisonMetrics(boolean available, Integer totalTasksDelta,
+                Integer completedTasksDelta, Integer delayedTasksDelta,
+                Integer onHoldTasksDelta, Integer completionRateDeltaPercent,
+                Integer checklistCompletionRateDeltaPercent) {
+            this(available, totalTasksDelta, completedTasksDelta, delayedTasksDelta,
+                    onHoldTasksDelta, completionRateDeltaPercent,
+                    checklistCompletionRateDeltaPercent, null, null);
+        }
+    }
 
     public record EvidenceValue(String key, String label, String value, String kind) {}
 
@@ -126,11 +148,22 @@ public final class ReportContracts {
             ReferenceIndex references,
             Map<String, EvidenceValue> evidence) {}
 
+    // 구버전 저장본과 provider 응답 모두 참조 배열을 생략할 수 있다. 여기서 정규화하지 않으면
+    // invalidRefs가 null을 거부해 과거 리포트가 영구히 읽히지 않는다.
+    private static List<String> refs(List<String> values) {
+        return values == null ? List.of() : values;
+    }
+
     public record NarrativeItem(
             String textTemplate,
             List<String> evidenceKeys,
             List<String> taskRefs,
             List<String> objectiveRefs) {
+        public NarrativeItem {
+            evidenceKeys = refs(evidenceKeys);
+            taskRefs = refs(taskRefs);
+            objectiveRefs = refs(objectiveRefs);
+        }
         public NarrativeItem(String textTemplate, List<String> evidenceKeys) {
             this(textTemplate, evidenceKeys, List.of(), List.of());
         }
@@ -142,7 +175,13 @@ public final class ReportContracts {
             String textTemplate,
             List<String> evidenceKeys,
             List<String> taskRefs,
-            List<String> objectiveRefs) {}
+            List<String> objectiveRefs) {
+        public RiskNarrativeItem {
+            evidenceKeys = refs(evidenceKeys);
+            taskRefs = refs(taskRefs);
+            objectiveRefs = refs(objectiveRefs);
+        }
+    }
 
     public record ActionNarrativeItem(
             int priority,
@@ -152,6 +191,11 @@ public final class ReportContracts {
             List<String> evidenceKeys,
             List<String> taskRefs,
             List<String> objectiveRefs) {
+        public ActionNarrativeItem {
+            evidenceKeys = refs(evidenceKeys);
+            taskRefs = refs(taskRefs);
+            objectiveRefs = refs(objectiveRefs);
+        }
         public ActionNarrativeItem(int priority, String actionTemplate, String reasonTemplate,
                 List<String> evidenceKeys, List<String> taskRefs,
                 List<String> objectiveRefs) {
@@ -165,7 +209,13 @@ public final class ReportContracts {
             String impactTemplate,
             List<String> evidenceKeys,
             List<String> taskRefs,
-            List<String> objectiveRefs) {}
+            List<String> objectiveRefs) {
+        public DecisionNarrativeItem {
+            evidenceKeys = refs(evidenceKeys);
+            taskRefs = refs(taskRefs);
+            objectiveRefs = refs(objectiveRefs);
+        }
+    }
 
     public record Narrative(
             String headlineTemplate,
@@ -176,6 +226,17 @@ public final class ReportContracts {
             List<ActionNarrativeItem> topActions,
             List<DecisionNarrativeItem> leaderDecisions,
             List<NarrativeItem> limitations) {
+        // 신규 슬롯이 추가되면 구버전 행에서 null로 역직렬화된다. validateShape가 null 리스트를
+        // 거부하므로 여기서 정규화해야 view·PDF·초안편집 경로가 모두 과거 리포트를 계속 읽는다.
+        public Narrative {
+            changes = changes == null ? List.of() : changes;
+            achievements = achievements == null ? List.of() : achievements;
+            risks = risks == null ? List.of() : risks;
+            topActions = topActions == null ? List.of() : topActions;
+            leaderDecisions = leaderDecisions == null ? List.of() : leaderDecisions;
+            limitations = limitations == null ? List.of() : limitations;
+        }
+
         public Narrative(String headline, String executiveSummary,
                 List<NarrativeItem> highlights, List<NarrativeItem> risks,
                 List<NarrativeItem> nextWeekActions, List<NarrativeItem> dataLimitations) {
@@ -280,13 +341,23 @@ public final class ReportContracts {
         public List<NarrativeItemView> dataLimitations() { return limitations; }
     }
 
+    // grade/score/rank는 evidence에 member.*.grade 키가 있을 때만 채운다. 구버전 리포트는 null이고
+    // 화면이 등급 열을 숨긴다 — 0/null로 역직렬화된 구 지표에서 등급을 지어내지 않기 위한 장치다.
     public record MemberWorkView(
             LocalReference member,
             long assigned,
             long active,
             long completed,
             long delayed,
-            Integer onTimeRatePercent) {}
+            Integer onTimeRatePercent,
+            String grade,
+            Integer score,
+            String rank) {
+        public MemberWorkView(LocalReference member, long assigned, long active, long completed,
+                long delayed, Integer onTimeRatePercent) {
+            this(member, assigned, active, completed, delayed, onTimeRatePercent, null, null, null);
+        }
+    }
 
     public record TaskWorkView(
             LocalReference task,
@@ -339,7 +410,19 @@ public final class ReportContracts {
             Map<String, EvidenceValue> evidence,
             OperationalView operations,
             NarrativeView analysis,
-            Narrative draft) {}
+            Narrative draft,
+            String gradeRule) {
+        public WeeklyReportView(Long reportId, String status, String publicationStatus,
+                LocalDate periodStart, LocalDate periodEnd, String language,
+                LocalDateTime generatedAt, LocalDateTime finalizedAt, int revision,
+                long editorVersion, boolean cached, MetricsSnapshot metrics,
+                ComparisonMetrics comparison, Map<String, EvidenceValue> evidence,
+                OperationalView operations, NarrativeView analysis, Narrative draft) {
+            this(reportId, status, publicationStatus, periodStart, periodEnd, language,
+                    generatedAt, finalizedAt, revision, editorVersion, cached, metrics,
+                    comparison, evidence, operations, analysis, draft, null);
+        }
+    }
 
     public record RevisionSummary(
             Long reportId,

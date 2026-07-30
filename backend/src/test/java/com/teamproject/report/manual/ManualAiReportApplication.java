@@ -6,6 +6,7 @@ import com.teamproject.group.domain.GroupMember;
 import com.teamproject.group.domain.GroupMemberRepository;
 import com.teamproject.group.domain.GroupRepository;
 import com.teamproject.report.application.AiNarrativeGenerator;
+import com.teamproject.report.application.ReportPeriod;
 import com.teamproject.report.application.ReportContracts.ActionNarrativeItem;
 import com.teamproject.report.application.ReportContracts.AiGenerationInput;
 import com.teamproject.report.application.ReportContracts.AiGenerationResult;
@@ -22,6 +23,7 @@ import com.teamproject.task.domain.TaskRepository;
 import com.teamproject.user.domain.User;
 import com.teamproject.user.domain.UserRepository;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -34,6 +36,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -56,8 +59,11 @@ public final class ManualAiReportApplication {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class ManualConfiguration {
+        // AI_REPORT_ENABLED=true로 기동하면 실제 provider 어댑터를 그대로 쓰고 픽스처만 재사용한다.
         @Bean
         @Primary
+        @ConditionalOnProperty(name = "app.ai-report.enabled",
+                havingValue = "false", matchIfMissing = true)
         AiNarrativeGenerator manualFakeAiNarrativeGenerator() {
                 return input -> new AiGenerationResult(
                         practicalNarrative(input),
@@ -110,9 +116,9 @@ public final class ManualAiReportApplication {
                         team.add(members.save(GroupMember.member(group, memberUser)));
                     }
 
-                    LocalDate reportWeekStart = LocalDate.now(GROUP_ZONE)
-                            .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                            .minusWeeks(1);
+                    // 리포트 주차는 달의 1·8·15·22·29일 시작이다(ReportPeriod와 같은 기준).
+                    LocalDate reportWeekStart = ReportPeriod.lastCompletedWeekStart(
+                            GROUP_ZONE.getId(), Clock.systemUTC());
                     seedWeeklyActivity(
                             group,
                             team,
@@ -352,7 +358,13 @@ public final class ManualAiReportApplication {
                     fixture.status() == Task.Status.TODO ? null : createdAt.plusHours(1));
             ReflectionTestUtils.setField(task, "completedAt", completedAt);
             if (fixture.status() == Task.Status.ON_HOLD) {
-                ReflectionTestUtils.setField(task, "holdReason", "외부 확인을 기다리는 중");
+                // 차단 유형·다음 조치·확인일을 채워야 "왜 막혔나"와 지난 확인일 신호를 검증할 수 있다.
+                Blocker blocker = BLOCKERS.get(index % BLOCKERS.size());
+                ReflectionTestUtils.setField(task, "holdReason", blocker.reason());
+                ReflectionTestUtils.setField(task, "blockerType", blocker.type());
+                ReflectionTestUtils.setField(task, "blockerNextActionType", blocker.nextAction());
+                ReflectionTestUtils.setField(task, "blockerReviewDate",
+                        weekStart.plusDays(blocker.reviewDayOffset()));
             }
             task = tasks.saveAndFlush(task);
 
@@ -382,6 +394,18 @@ public final class ManualAiReportApplication {
                     index != 0));
         }
     }
+
+    /** 확인일 오프셋 2는 기간(월~일) 안이라 "확인일 지남"이 되고, 9는 다음 주로 넘어간다. */
+    private static final List<Blocker> BLOCKERS = List.of(
+            new Blocker("외부 벤더 회신을 기다리는 중", Task.BlockerType.EXTERNAL,
+                    Task.BlockerNextActionType.WAIT_EXTERNAL, 2),
+            new Blocker("운영 승인 결정이 아직 나오지 않았다", Task.BlockerType.DECISION,
+                    Task.BlockerNextActionType.DECIDE, 2),
+            new Blocker("스테이징 접근 권한이 없어 확인을 못 한다", Task.BlockerType.ACCESS,
+                    Task.BlockerNextActionType.UNBLOCK_ACCESS, 9));
+
+    private record Blocker(String reason, Task.BlockerType type,
+            Task.BlockerNextActionType nextAction, int reviewDayOffset) {}
 
     private record TaskFixture(
             int weekOffset,

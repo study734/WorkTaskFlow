@@ -20,6 +20,8 @@ import com.teamproject.report.application.ReportContracts.ReportSnapshot;
 import com.teamproject.report.application.ReportContracts.RiskNarrativeItem;
 import com.teamproject.report.application.ReportContracts.RiskNarrativeItemView;
 import com.teamproject.report.application.ReportContracts.TaskContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
@@ -41,11 +43,15 @@ import java.util.stream.Collectors;
  */
 @Component
 public class NarrativeContract {
-    public static final String PROMPT_VERSION = "v6";
+    private static final Logger log = LoggerFactory.getLogger(NarrativeContract.class);
+    public static final String PROMPT_VERSION = "v8";
     public static final String SCHEMA_VERSION = "v4";
     private static final Pattern PLACEHOLDER =
             Pattern.compile("\\{\\{([A-Za-z0-9._-]+)}}");
     private static final Pattern MEMBER_ALIAS = Pattern.compile("\\bMEMBER-\\d+\\b");
+    // 별칭은 reference index를 거쳐야 실제 제목·이름으로 해석된다. 본문에 남으면 독자에게
+    // "TASK-12"가 그대로 보이고, 별칭의 숫자가 리터럴 숫자 검사에도 걸린다.
+    private static final Pattern LOCAL_ALIAS = Pattern.compile("\\b(?:TASK|GOAL)-\\d+\\b");
     private static final Set<String> SEVERITIES = Set.of("LOW", "MEDIUM", "HIGH");
 
     private final ObjectMapper json;
@@ -74,6 +80,18 @@ public class NarrativeContract {
                 input provides them. Never use generic filler such as "check the workflow",
                 "monitor progress", or "review priorities" without naming the affected signal,
                 consequence, and next checkpoint.
+                The leader already knows this week's totals. Completion rate, task counts and
+                overdue counts are printed on the dashboard, so restating them is not a finding.
+                Prioritize what no screen shows: how long work has been stuck and who is affected.
+                Lead with these keys whenever the input supplies them, before any headline metric —
+                task.*.blockedHours (time a task has sat on hold, counted from before this week),
+                task.*.idleDays (days with no activity), task.*.approvalWaitHours (time waiting to
+                be approved), task.*.startLagHours, task.*.reopenCount,
+                task.*.assigneeChangeCount, flow.overdueReviewCount (on-hold tasks whose review
+                date has already passed), flow.idleOverThreeDays, flow.longestBlockedHours,
+                flow.longestApprovalWaitHours. A task blocked for many hours whose review date has
+                passed is the single most useful thing you can surface; say how long, name the
+                consequence of it staying stuck, and give the action that unblocks it.
                 Put directly observed facts in changes and connect each change to its direction
                 or operational consequence. Put only evidence-backed outcomes in achievements.
                 Each risk states the signal, the likely operational impact, and the observation
@@ -88,13 +106,70 @@ public class NarrativeContract {
                 to do, when it should be checked, and which risk it reduces. State the checkpoint
                 as an evidence placeholder or an explicit relative window such as "before the next
                 weekly review"; never leave the timing implied.
+                The server graded each member from its own frozen metrics with a fixed rule. You did
+                not compute those grades and must not dispute or recompute them. When member keys
+                are supplied, route ownership by them: give the action to the owner of the work that
+                is actually stuck, and where a grade explains why that work needs attention, cite
+                member.<ref>.grade together with the rate key behind it
+                (member.<ref>.completionRate, .onTimeRate or .checklistRate). NOT_RATED means the
+                member had no measurable assigned work; state that plainly and never imply fault or
+                treat it as a low grade. Describe work and outcomes only — never a person's
+                attitude, motivation, diligence or ability, and never compare two members in one
+                sentence except through the server's own member.*.rank or members.*Grade keys.
+                The key families named above are conditional: a key exists only when its value is
+                non-zero, so most tasks have none of them. Never assemble a key name from a pattern.
+                Copy keys verbatim from the supplied evidenceKeys list and use nothing else — one
+                invented key discards the entire report.
                 Use only supplied evidence keys and de-identified TASK-, GOAL-, and MEMBER- refs.
+                Refs belong exclusively in the structured taskRefs, objectiveRefs, and ownerRef
+                fields. Never write TASK-, GOAL-, or MEMBER- inside any text field; the reader sees
+                resolved titles and names from those structured fields, so an alias in prose is
+                unreadable. Describe the work in words instead ("기한이 지난 검토 업무").
                 Never invent or calculate a number or date. Any numeric or date claim must use an
                 exact placeholder such as {{tasks.delayed}} or {{task.TASK-01.blockerReviewDate}}.
                 Put every placeholder key in the same item's evidenceKeys.
+                A placeholder is replaced by a server-rendered string that carries no unit of its
+                own unless listed below, so you must write the unit and the surrounding grammar.
+                Rendered forms: tasks.*, checklist.*, objective.*, task.*.checklist*, daily.*,
+                flow.peakCompletedCount and flow.zeroCompletionDays give a bare integer ("12");
+                time.averageCompletionHours gives a bare integer counting hours ("60");
+                rates.* gives an integer with a percent sign ("42%%"); comparison count deltas give
+                a signed integer ("+6"); comparison.completionRateDelta,
+                comparison.checklistRateDelta and comparison.onTimeRateDelta give a signed integer
+                with a percentage-point suffix ("-19%%p"); comparison.avgCompletionHoursDelta gives
+                a signed integer counting hours ("-10"); task.*.blockedHours,
+                task.*.approvalWaitHours, task.*.startLagHours,
+                flow.longestBlockedHours and flow.longestApprovalWaitHours give a bare integer
+                counting hours ("84"); task.*.idleDays gives a bare integer counting days ("4");
+                member.*.completionRate, member.*.onTimeRate and member.*.checklistRate give an
+                integer with a percent sign; member.*.score gives an integer from 0 to 100;
+                member.*.grade, members.topGrade and members.lowestGrade give a single letter or
+                the word NOT_RATED; member.*.rank gives a pre-rendered position such as "2/5";
+                task.*.dueDate, task.*.blockerReviewDate and flow.peakCompletedDay give an ISO date.
+                Always name the unit a bare integer counts, and never let a placeholder stand alone
+                as a sentence subject: write "지연 업무 건수가 {{tasks.delayed}}건" and not
+                "{{tasks.delayed}}가".
+                When writing Korean, attach the counter noun before the particle
+                ("{{tasks.delayed}}건으로", "{{time.averageCompletionHours}}시간으로",
+                "{{comparison.avgCompletionHoursDelta}}시간") so the particle follows that noun.
+                For a rendered value that already ends in a symbol, choose the particle for how it
+                is read aloud: "{{rates.completion}}로" because 퍼센트 ends in a vowel, never
+                "{{rates.completion}}으로".
+                No digit may appear in any text field except inside a placeholder. This rejects
+                years, calendar dates, counts, percentages, hours, and ordinals written out as
+                digits: write "{{flow.peakCompletedDay}}" not a literal calendar date,
+                "{{tasks.delayed}}건" not "6건", "{{rates.onTime}}" not a literal percentage
+                such as eighty-three percent. Spell small quantities as words instead
+                ("두 건 남았다") only when no evidence key covers them.
                 Do not rank, score, praise, blame, or infer attitude or productivity of a person.
-                Reference affected taskRefs and objectiveRefs when known.
-                When coverage is partial, include a limitation citing coverage.partial.
+                Reference affected taskRefs and objectiveRefs when known. List a taskRef only when
+                at least one evidence key cited by that same item actually covers it: a
+                task.<thatRef>.* key, an objective key for the objective it belongs to, or a status
+                metric matching its own status or due state. Drop a task you cannot back this way
+                rather than adding it to the list.
+                Include a limitation citing coverage.partial only when that exact key appears in the
+                supplied evidenceKeys list. If it is absent the history is complete — say nothing
+                about data coverage and do not name the key.
                 Do not use markdown or numbered-list prefixes in text fields.
                 Return the report in %s.
                 """.formatted("en".equals(language) ? "English" : "Korean");
@@ -105,7 +180,7 @@ public class NarrativeContract {
         Map<String, Object> riskItem = objectSchema(Map.of(
                 "severity", Map.of("type", "string", "enum", List.of("LOW", "MEDIUM", "HIGH")),
                 "textTemplate", narrativeTextSchema(600),
-                "evidenceKeys", stringArray(1, 8),
+                "evidenceKeys", stringArray(1, 10),
                 "taskRefs", stringArray(0, 5),
                 "objectiveRefs", stringArray(0, 3)),
                 List.of("severity", "textTemplate", "evidenceKeys", "taskRefs", "objectiveRefs"));
@@ -114,7 +189,7 @@ public class NarrativeContract {
                 "actionTemplate", narrativeTextSchema(500),
                 "reasonTemplate", narrativeTextSchema(500),
                 "ownerRef", Map.of("type", "string"),
-                "evidenceKeys", stringArray(1, 8),
+                "evidenceKeys", stringArray(1, 10),
                 "taskRefs", stringArray(0, 5),
                 "objectiveRefs", stringArray(0, 3)),
                 List.of("priority", "actionTemplate", "reasonTemplate", "ownerRef",
@@ -122,7 +197,7 @@ public class NarrativeContract {
         Map<String, Object> decisionItem = objectSchema(Map.of(
                 "questionTemplate", narrativeTextSchema(500),
                 "impactTemplate", narrativeTextSchema(500),
-                "evidenceKeys", stringArray(1, 8),
+                "evidenceKeys", stringArray(1, 10),
                 "taskRefs", stringArray(0, 5),
                 "objectiveRefs", stringArray(0, 3)),
                 List.of("questionTemplate", "impactTemplate",
@@ -166,12 +241,66 @@ public class NarrativeContract {
     public Class<GeneratedNarrative> responseType() { return GeneratedNarrative.class; }
     public Narrative fromGenerated(GeneratedNarrative value) {
         if (value == null) throw payloadInvalid();
+        // Narrative가 null 리스트를 List.of()로 정규화하므로(구버전 행 보호) 슬롯 누락은
+        // 정규화 전 raw payload에서 잡아야 한다. 그러지 않으면 슬롯을 빼먹은 응답이 통과한다.
+        String missing = missingGeneratedSlot(value);
+        if (missing != null) {
+            log.warn("event=AI_REPORT_VALIDATION outcome=GENERATED_SLOT_MISSING slot={}", missing);
+            throw new IllegalArgumentException("Generated narrative slot is missing: " + missing);
+        }
         Narrative narrative = value.toNarrative();
-        if (narrative.topActions() == null || narrative.topActions().stream()
-                .anyMatch(item -> blank(item.ownerRef()))) {
+        if (narrative.topActions().stream().anyMatch(item -> blank(item.ownerRef()))) {
             throw new IllegalArgumentException("Generated action owner is required");
         }
-        return narrative;
+        return withRenumberedActions(clampSections(narrative));
+    }
+
+    private String missingGeneratedSlot(GeneratedNarrative value) {
+        if (blank(value.headlineTemplate)) return "headlineTemplate";
+        if (value.summary == null) return "summary";
+        if (value.changes == null) return "changes";
+        if (value.achievements == null) return "achievements";
+        if (value.risks == null) return "risks";
+        if (value.topActions == null || value.topActions.isEmpty()) return "topActions";
+        if (value.leaderDecisions == null) return "leaderDecisions";
+        if (value.limitations == null) return "limitations";
+        return null;
+    }
+
+    /**
+     * 응답 스키마의 maxItems는 provider가 항상 지키지는 않는다. 초과분만 잘라 계약 상한에 맞춘다.
+     * 통째로 버리면 한 번의 초과가 생성 전체를 실패로 만든다.
+     */
+    private Narrative clampSections(Narrative narrative) {
+        return new Narrative(narrative.headlineTemplate(), narrative.summary(),
+                clamp(narrative.changes()), clamp(narrative.achievements()),
+                clamp(narrative.risks()), narrative.topActions(),
+                clamp(narrative.leaderDecisions()), clamp(narrative.limitations()));
+    }
+
+    private <T> List<T> clamp(List<T> items) {
+        return items == null || items.size() <= 3 ? items : List.copyOf(items.subList(0, 3));
+    }
+
+    /**
+     * priority는 읽기 순서를 뜻하므로 모델이 매긴 값 순으로 정렬한 뒤 1..n으로 다시 부여한다.
+     * 순서 정보는 그대로 보존되고, 중복·건너뛴 번호 때문에 생성 전체가 버려지는 일만 없어진다.
+     */
+    private Narrative withRenumberedActions(Narrative narrative) {
+        List<ActionNarrativeItem> ordered = narrative.topActions().stream()
+                .sorted(java.util.Comparator.comparingInt(ActionNarrativeItem::priority))
+                .limit(3)
+                .toList();
+        List<ActionNarrativeItem> renumbered = new ArrayList<>(ordered.size());
+        for (int index = 0; index < ordered.size(); index++) {
+            ActionNarrativeItem item = ordered.get(index);
+            renumbered.add(new ActionNarrativeItem(index + 1, item.actionTemplate(),
+                    item.reasonTemplate(), item.ownerRef(), item.evidenceKeys(),
+                    item.taskRefs(), item.objectiveRefs()));
+        }
+        return new Narrative(narrative.headlineTemplate(), narrative.summary(),
+                narrative.changes(), narrative.achievements(), narrative.risks(),
+                List.copyOf(renumbered), narrative.leaderDecisions(), narrative.limitations());
     }
 
     public MetricsSnapshot readMetrics(String schemaVersion, String value) {
@@ -297,7 +426,10 @@ public class NarrativeContract {
                                 new LocalReference(item.memberLabel(), "MEMBER",
                                         item.memberLabel(), null, null)),
                         item.assigned(), item.active(), item.completed(), item.delayed(),
-                        item.onTimeRatePercent()))
+                        item.onTimeRatePercent(),
+                        frozenText(snapshot, "member." + item.memberLabel() + ".grade"),
+                        frozenInt(snapshot, "member." + item.memberLabel() + ".score"),
+                        frozenText(snapshot, "member." + item.memberLabel() + ".rank")))
                 .toList();
         List<ReportContracts.TaskWorkView> tasks = snapshot.aiContext().tasks().stream()
                 .map(item -> new ReportContracts.TaskWorkView(
@@ -322,6 +454,21 @@ public class NarrativeContract {
     public ReportSnapshot snapshot(MetricsSnapshot metrics, AiReportContext context,
             ReferenceIndex references, Map<String, EvidenceValue> evidence) {
         return new ReportSnapshot(metrics, context.comparison(), context, references, evidence);
+    }
+
+    // 등급·순위는 동결 evidence만 읽는다. 키가 없는 구버전 리포트는 자동으로 null이 된다.
+    private String frozenText(ReportSnapshot snapshot, String key) {
+        EvidenceValue value = snapshot.evidence().get(key);
+        return value == null ? null : value.value();
+    }
+
+    private Integer frozenInt(ReportSnapshot snapshot, String key) {
+        String value = frozenText(snapshot, key);
+        try {
+            return value == null ? null : Integer.valueOf(value);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private String healthStatus(MetricsSnapshot metrics) {
@@ -400,11 +547,23 @@ public class NarrativeContract {
     private void validatePart(TemplatePart part, Set<String> allowedEvidence,
             Set<String> allowedTasks, Set<String> allowedObjectives,
             Set<String> allowedMembers, HttpStatus status) {
-        if (MEMBER_ALIAS.matcher(part.template()).find()) {
+        // 별칭 검사는 placeholder를 제거한 산문에만 적용한다. {{task.TASK-01.dueDate}} 같은 근거
+        // placeholder는 키로 따로 검증되고 렌더 결과는 값이므로 별칭이 독자에게 노출되지 않는다.
+        String prose = removePlaceholders(part.template());
+        if (MEMBER_ALIAS.matcher(prose).find()) {
             throw invalid("AI_REPORT_PERSON_COMPARISON_INVALID", status,
                     "팀원 식별자는 구조화된 담당자 필드에서만 사용할 수 있습니다.");
         }
-        if (containsLiteralNumber(removePlaceholders(part.template()))) {
+        if (LOCAL_ALIAS.matcher(prose).find()) {
+            log.warn("event=AI_REPORT_VALIDATION outcome=ALIAS_IN_TEXT itemKeys={}",
+                    part.evidenceKeys());
+            throw invalid("AI_REPORT_REFERENCE_TEXT_INVALID", status,
+                    "업무·목표 식별자는 구조화된 참조 필드에서만 사용할 수 있습니다.");
+        }
+        if (containsLiteralNumber(prose)) {
+            // 위반한 숫자 토큰만 남긴다. 서술 본문은 로그에 넣지 않는다.
+            log.warn("event=AI_REPORT_VALIDATION outcome=LITERAL_NUMBER digits={} itemKeys={}",
+                    literalNumbers(prose), part.evidenceKeys());
             throw invalid("AI_REPORT_NUMERIC_TEXT_INVALID", status,
                     "숫자와 날짜는 서버 근거 placeholder로만 입력해 주세요.");
         }
@@ -412,6 +571,16 @@ public class NarrativeContract {
                 || !allowedTasks.containsAll(part.taskRefs())
                 || !allowedObjectives.containsAll(part.objectiveRefs())
                 || !allowedMembers.containsAll(part.memberRefs())) {
+            // 모델이 지어낸 키·참조만 남긴다. 어떤 계열을 조립하려 했는지가 프롬프트 수정의 단서다.
+            log.warn("event=AI_REPORT_VALIDATION outcome=UNKNOWN_REFERENCE "
+                    + "keys={} taskRefs={} objectiveRefs={} memberRefs={}",
+                    part.evidenceKeys().stream().filter(key -> !allowedEvidence.contains(key))
+                            .toList(),
+                    part.taskRefs().stream().filter(ref -> !allowedTasks.contains(ref)).toList(),
+                    part.objectiveRefs().stream()
+                            .filter(ref -> !allowedObjectives.contains(ref)).toList(),
+                    part.memberRefs().stream()
+                            .filter(ref -> !allowedMembers.contains(ref)).toList());
             throw invalid("AI_REPORT_EVIDENCE_INVALID", status,
                     "리포트 근거 또는 업무 참조를 확인해 주세요.");
         }
@@ -431,8 +600,15 @@ public class NarrativeContract {
 
     private void validateTaskReferences(TemplatePart part,
             Map<String, TaskContext> tasks, HttpStatus status) {
-        if (part.taskRefs().stream().map(tasks::get)
-                .anyMatch(task -> !taskMatchesEvidence(task, part.evidenceKeys()))) {
+        for (String ref : part.taskRefs()) {
+            if (taskMatchesEvidence(tasks.get(ref), part.evidenceKeys())) continue;
+            TaskContext task = tasks.get(ref);
+            // 별칭과 근거 키만 남긴다. 서술 본문은 로그에 넣지 않는다.
+            log.warn("event=AI_REPORT_VALIDATION outcome=EVIDENCE_TASK_MISMATCH "
+                    + "taskRef={} status={} dueState={} itemKeys={} itemRefs={}",
+                    ref, task == null ? "UNKNOWN" : task.status(),
+                    task == null ? "UNKNOWN" : task.dueState(),
+                    part.evidenceKeys(), part.taskRefs());
             throw invalid("AI_REPORT_EVIDENCE_INVALID", status,
                     "근거 업무가 해당 지표의 의미와 일치하지 않습니다.");
         }
@@ -443,20 +619,102 @@ public class NarrativeContract {
                 .collect(Collectors.toMap(TaskContext::taskRef, value -> value));
     }
 
+    /**
+     * 인용된 근거 중 업무 단위 의미가 있는 키가 하나도 없으면 참조를 제약하지 않고, 있으면 그중
+     * 최소 하나와 맞아야 한다. 전부와 맞기를 요구하면 "지연·보류가 함께 늘었다"처럼 신호를 여럿
+     * 인용하는 문장이 구조적으로 통과할 수 없다. 무관한 업무를 붙이는 것은 여전히 막힌다.
+     */
     private boolean taskMatchesEvidence(TaskContext task, List<String> evidenceKeys) {
         if (task == null) return false;
-        return evidenceKeys.stream().allMatch(key -> switch (key) {
-            case "tasks.completed" -> "COMPLETED".equals(task.status());
+        boolean applicable = false;
+        for (String key : evidenceKeys) {
+            switch (fit(task, key)) {
+                case MATCH -> { return true; }
+                case MISMATCH -> applicable = true;
+                case NOT_APPLICABLE -> { }
+            }
+        }
+        return !applicable;
+    }
+
+    /**
+     * 근거 키가 한 업무에 대해 어떤 뜻인지 판정한다. 새 키를 추가할 때 여기에 case를 넣지 않으면
+     * 그 키는 업무 참조에 아무 제약을 걸지 못하고 근거-업무 연결이 장식이 된다.
+     */
+    private EvidenceFit fit(TaskContext task, String key) {
+        if (key.startsWith("task.")) {
+            return scopedRef(key).equals(task.taskRef()) && taskScopedMatches(task, key)
+                    ? EvidenceFit.MATCH : EvidenceFit.MISMATCH;
+        }
+        if (key.startsWith("objective.")) {
+            return scopedRef(key).equals(task.objectiveRef())
+                    ? EvidenceFit.MATCH : EvidenceFit.MISMATCH;
+        }
+        // 팀원 범위 근거는 그 팀원이 담당한 업무만 함께 참조할 수 있다. members.* 집계는 해당 없음.
+        if (key.startsWith("member.")) {
+            return scopedRef(key).equals(task.memberRef())
+                    ? EvidenceFit.MATCH : EvidenceFit.MISMATCH;
+        }
+        // daily.<date>.created는 TaskContext에 생성일이 없어 업무 단위로 확인할 수 없다.
+        if (key.startsWith("daily.")) {
+            return key.endsWith(".completed")
+                    ? fit("COMPLETED".equals(task.status())) : EvidenceFit.NOT_APPLICABLE;
+        }
+        return switch (key) {
+            case "tasks.completed" -> fit("COMPLETED".equals(task.status()));
             case "tasks.active" ->
-                    Set.of("IN_PROGRESS", "ON_HOLD").contains(task.status());
-            case "tasks.onHold" -> "ON_HOLD".equals(task.status());
-            case "tasks.delayed" -> "OVERDUE".equals(task.dueState());
+                    fit(Set.of("IN_PROGRESS", "ON_HOLD").contains(task.status()));
+            case "tasks.onHold" -> fit("ON_HOLD".equals(task.status()));
+            case "tasks.delayed" -> fit("OVERDUE".equals(task.dueState()));
             case "tasks.highPriority" ->
-                    Set.of("HIGH", "URGENT").contains(task.priority());
-            case "checklist.total" -> task.checklistTotal() > 0;
-            case "checklist.completed" -> task.checklistCompleted() > 0;
+                    fit(Set.of("HIGH", "URGENT").contains(task.priority()));
+            case "tasks.requested" -> fit("REQUESTED".equals(task.status()));
+            case "tasks.todo" -> fit("TODO".equals(task.status()));
+            case "tasks.inProgress" -> fit("IN_PROGRESS".equals(task.status()));
+            case "tasks.rejected" -> fit("REJECTED".equals(task.status()));
+            case "tasks.cancelled" -> fit("CANCELLED".equals(task.status()));
+            case "checklist.total" -> fit(task.checklistTotal() > 0);
+            case "checklist.completed" -> fit(task.checklistCompleted() > 0);
+            case "time.averageCompletionHours", "flow.peakCompletedDay",
+                    "flow.peakCompletedCount" -> fit("COMPLETED".equals(task.status()));
+            case "flow.longestBlockedHours" -> fit(blocked(task));
+            case "flow.overdueReviewCount" -> fit(task.blockerReviewWindow() != null);
+            case "flow.reopenedTaskCount" -> fit(changed(task, "REOPENED"));
+            default -> EvidenceFit.NOT_APPLICABLE;
+        };
+    }
+
+    private EvidenceFit fit(boolean matched) {
+        return matched ? EvidenceFit.MATCH : EvidenceFit.MISMATCH;
+    }
+
+    private boolean taskScopedMatches(TaskContext task, String key) {
+        return switch (key.substring(key.lastIndexOf('.') + 1)) {
+            case "dueDate" -> !"NONE".equals(task.dueState());
+            case "blockerReviewDate" -> task.blockerReviewWindow() != null;
+            case "checklistTotal", "checklistCompleted" -> task.checklistTotal() > 0;
+            case "blockedHours" -> blocked(task);
+            case "reopenCount" -> changed(task, "REOPENED");
+            case "assigneeChangeCount" -> changed(task, "ASSIGNEE_CHANGED");
             default -> true;
-        });
+        };
+    }
+
+    private boolean blocked(TaskContext task) {
+        return "ON_HOLD".equals(task.status()) || changed(task, "BLOCKED");
+    }
+
+    private boolean changed(TaskContext task, String change) {
+        return task.changes() != null && task.changes().contains(change);
+    }
+
+    private enum EvidenceFit { MATCH, MISMATCH, NOT_APPLICABLE }
+
+    // task.TASK-01.dueDate / objective.GOAL-02.delayed 처럼 두 번째 구간이 별칭이다.
+    private String scopedRef(String key) {
+        int start = key.indexOf('.') + 1;
+        int end = key.indexOf('.', start);
+        return end < 0 ? key.substring(start) : key.substring(start, end);
     }
 
     private List<String> compatibleTaskRefs(List<String> taskRefs,
@@ -498,28 +756,47 @@ public class NarrativeContract {
     }
 
     private void validateShape(Narrative narrative, boolean requireActionOwner) {
-        boolean invalid = narrative == null
-                || blank(narrative.headlineTemplate())
-                || invalid(narrative.summary())
-                || narrative.changes() == null || narrative.changes().size() > 3
-                || narrative.achievements() == null || narrative.achievements().size() > 3
-                || narrative.risks() == null || narrative.risks().size() > 3
-                || narrative.topActions() == null || narrative.topActions().isEmpty()
-                || narrative.topActions().size() > 3
-                || narrative.leaderDecisions() == null
-                || narrative.leaderDecisions().size() > 3
-                || narrative.limitations() == null || narrative.limitations().size() > 3
-                || narrative.changes().stream().anyMatch(this::invalid)
-                || narrative.achievements().stream().anyMatch(this::invalid)
-                || narrative.risks().stream().anyMatch(this::invalid)
-                || narrative.topActions().stream()
-                        .anyMatch(item -> invalid(item, requireActionOwner))
-                || narrative.leaderDecisions().stream().anyMatch(this::invalid)
-                || narrative.limitations().stream().anyMatch(this::invalid);
-        if (invalid) {
+        String reason = shapeViolation(narrative, requireActionOwner);
+        if (reason != null) {
+            // 위반한 슬롯 이름만 남긴다. 서술 본문은 로그에 넣지 않는다.
+            log.warn("event=AI_REPORT_VALIDATION outcome=SHAPE_INVALID reason={}", reason);
             throw new ApplicationException("AI_REPORT_RESPONSE_INVALID", HttpStatus.BAD_GATEWAY,
                     "AI 리포트 응답을 확인하지 못했습니다.");
         }
+    }
+
+    private String shapeViolation(Narrative narrative, boolean requireActionOwner) {
+        if (narrative == null) return "narrative=null";
+        if (blank(narrative.headlineTemplate())) return "headline=blank";
+        if (invalid(narrative.summary())) return "summary";
+        if (narrative.changes() == null || narrative.changes().size() > 3) return "changes=size";
+        if (narrative.achievements() == null || narrative.achievements().size() > 3) {
+            return "achievements=size";
+        }
+        if (narrative.risks() == null || narrative.risks().size() > 3) return "risks=size";
+        if (narrative.topActions() == null || narrative.topActions().isEmpty()
+                || narrative.topActions().size() > 3) {
+            return "topActions=size:" + (narrative.topActions() == null
+                    ? "null" : narrative.topActions().size());
+        }
+        if (narrative.leaderDecisions() == null || narrative.leaderDecisions().size() > 3) {
+            return "leaderDecisions=size";
+        }
+        if (narrative.limitations() == null || narrative.limitations().size() > 3) {
+            return "limitations=size";
+        }
+        if (narrative.changes().stream().anyMatch(this::invalid)) return "changes=item";
+        if (narrative.achievements().stream().anyMatch(this::invalid)) return "achievements=item";
+        if (narrative.risks().stream().anyMatch(this::invalid)) return "risks=item";
+        if (narrative.topActions().stream()
+                .anyMatch(item -> invalid(item, requireActionOwner))) {
+            return "topActions=item";
+        }
+        if (narrative.leaderDecisions().stream().anyMatch(this::invalid)) {
+            return "leaderDecisions=item";
+        }
+        if (narrative.limitations().stream().anyMatch(this::invalid)) return "limitations=item";
+        return null;
     }
 
     private boolean invalid(NarrativeItem item) {
@@ -607,6 +884,13 @@ public class NarrativeContract {
         return value != null && value.codePoints().anyMatch(Character::isDigit);
     }
 
+    private List<String> literalNumbers(String value) {
+        Matcher matcher = Pattern.compile("\\d+").matcher(value);
+        List<String> found = new ArrayList<>();
+        while (matcher.find()) found.add(matcher.group());
+        return found;
+    }
+
     private TemplatePart part(String template, NarrativeItem item) {
         return new TemplatePart(template, item.evidenceKeys(), item.taskRefs(),
                 item.objectiveRefs(), List.of());
@@ -652,7 +936,7 @@ public class NarrativeContract {
     private Map<String, Object> itemSchema(String textProperty) {
         return objectSchema(Map.of(
                 textProperty, narrativeTextSchema(800),
-                "evidenceKeys", stringArray(1, 8),
+                "evidenceKeys", stringArray(1, 10),
                 "taskRefs", stringArray(0, 5),
                 "objectiveRefs", stringArray(0, 3)),
                 List.of(textProperty, "evidenceKeys", "taskRefs", "objectiveRefs"));

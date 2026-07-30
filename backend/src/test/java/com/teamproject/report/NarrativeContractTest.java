@@ -86,6 +86,59 @@ class NarrativeContractTest {
         assertThat(decoded.topActions().getFirst().ownerRef()).isNull();
     }
 
+    // 신규 슬롯이 추가되면 구버전 행에는 그 키가 없다. 저장본은 계속 읽혀야 한다.
+    @Test
+    void continuesToReadStoredNarrativeWithMissingSectionArrays() {
+        String storedJson = """
+                {
+                  "headlineTemplate": "주간 흐름",
+                  "summary": {
+                    "textTemplate": "확정 지표 기반 서술",
+                    "evidenceKeys": ["tasks.total"],
+                    "taskRefs": [],
+                    "objectiveRefs": []
+                  },
+                  "topActions": [{
+                    "priority": 1,
+                    "actionTemplate": "실행 계획을 점검하세요.",
+                    "reasonTemplate": "확정된 업무 흐름을 반영해야 합니다.",
+                    "ownerRef": "MEMBER-01",
+                    "evidenceKeys": ["tasks.total"],
+                    "taskRefs": [],
+                    "objectiveRefs": []
+                  }],
+                  "limitations": []
+                }
+                """;
+
+        Narrative decoded = contract.readNarrative("v4", storedJson);
+
+        assertThat(decoded.changes()).isEmpty();
+        assertThat(decoded.achievements()).isEmpty();
+        assertThat(decoded.risks()).isEmpty();
+        assertThat(decoded.leaderDecisions()).isEmpty();
+        assertThat(decoded.topActions().getFirst().objectiveRefs()).isEmpty();
+    }
+
+    // 반대 방향: 정규화가 생성 응답의 슬롯 누락까지 덮어주면 안 된다.
+    @Test
+    void rejectsGeneratedNarrativeMissingSectionArray() {
+        var generated = new NarrativeContract.GeneratedNarrative();
+        generated.headlineTemplate = "실행 우선순위를 검토하세요";
+        generated.summary = generatedItem("확정 업무 흐름을 점검했습니다.");
+        generated.achievements = List.of();
+        generated.risks = List.of();
+        generated.leaderDecisions = List.of();
+        generated.limitations = List.of();
+        generated.topActions = List.of(
+                generatedAction(NarrativeContract.GeneratedPriority.P1, "첫 번째"));
+        generated.changes = null;
+
+        assertThatThrownBy(() -> contract.fromGenerated(generated))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("changes");
+    }
+
     @Test
     void restoresMemberReferencesWhenReadingStoredV3Context() throws Exception {
         ReportSnapshot snapshot = completedAndDelayedTaskSnapshot();
@@ -97,6 +150,60 @@ class NarrativeContractTest {
         AiReportContext decoded = contract.readAiContext("v3", stored.toString());
 
         assertThat(decoded.memberRefs()).containsExactly("MEMBER-01");
+    }
+
+    // 지침은 String.format으로 만들어지므로 본문의 %가 런타임에만 터진다. 두 언어 모두 확인한다.
+    @Test
+    void buildsInstructionsForBothLanguagesWithoutFormatErrors() {
+        assertThat(contract.instructions("ko")).contains("Korean");
+        assertThat(contract.instructions("en")).contains("English");
+        // %는 %%로 이스케이프해야 렌더된 지침에 한 글자로 남는다.
+        assertThat(contract.instructions("ko")).contains("42%").doesNotContain("%%");
+    }
+
+    @Test
+    void renumbersGeneratedActionPrioritiesByDeclaredOrder() {
+        var generated = new NarrativeContract.GeneratedNarrative();
+        generated.headlineTemplate = "실행 우선순위를 검토하세요";
+        generated.summary = generatedItem("확정 업무 흐름을 점검했습니다.");
+        generated.changes = List.of();
+        generated.achievements = List.of();
+        generated.risks = List.of();
+        generated.leaderDecisions = List.of();
+        generated.limitations = List.of();
+        generated.topActions = List.of(
+                generatedAction(NarrativeContract.GeneratedPriority.P3, "세 번째"),
+                generatedAction(NarrativeContract.GeneratedPriority.P1, "첫 번째"),
+                generatedAction(NarrativeContract.GeneratedPriority.P3, "중복 세 번째"));
+
+        Narrative narrative = contract.fromGenerated(generated);
+
+        assertThat(narrative.topActions()).extracting(ActionNarrativeItem::priority)
+                .containsExactly(1, 2, 3);
+        assertThat(narrative.topActions()).extracting(ActionNarrativeItem::actionTemplate)
+                .containsExactly("첫 번째", "세 번째", "중복 세 번째");
+    }
+
+    private NarrativeContract.GeneratedNarrativeItem generatedItem(String text) {
+        var item = new NarrativeContract.GeneratedNarrativeItem();
+        item.textTemplate = text;
+        item.evidenceKeys = List.of("tasks.total");
+        item.taskRefs = List.of();
+        item.objectiveRefs = List.of();
+        return item;
+    }
+
+    private NarrativeContract.GeneratedActionItem generatedAction(
+            NarrativeContract.GeneratedPriority priority, String action) {
+        var item = new NarrativeContract.GeneratedActionItem();
+        item.priority = priority;
+        item.actionTemplate = action;
+        item.reasonTemplate = "근거를 확인해야 합니다.";
+        item.ownerRef = "MEMBER-01";
+        item.evidenceKeys = List.of("tasks.total");
+        item.taskRefs = List.of();
+        item.objectiveRefs = List.of();
+        return item;
     }
 
     @Test
@@ -197,6 +304,62 @@ class NarrativeContractTest {
     }
 
     @Test
+    void keepsMultiSignalItemWhenOneCitedMetricMatchesTheTask() {
+        Narrative narrative = riskNarrative(
+                "지연·보류가 함께 늘어 실행 구간이 좁아졌습니다.",
+                List.of("tasks.delayed", "tasks.onHold"), List.of("TASK-02"));
+
+        contract.validateGenerated(completedAndDelayedTaskSnapshot(), narrative);
+
+        assertThat(contract.compatibleNarrative(
+                narrative, completedAndDelayedTaskSnapshot())
+                .risks().getFirst().taskRefs()).containsExactly("TASK-02");
+    }
+
+    @Test
+    void rejectsItemWhenNoCitedMetricMatchesTheTask() {
+        assertSnapshotError(riskNarrative(
+                "보류 업무를 먼저 확인해야 합니다.",
+                List.of("tasks.onHold"), List.of("TASK-02")));
+    }
+
+    @Test
+    void allowsAggregateOnlyEvidenceToReferenceAnyTask() {
+        Narrative narrative = riskNarrative(
+                "전체 업무량이 실행 여력을 넘어섰습니다.",
+                List.of("tasks.total"), List.of("TASK-01", "TASK-02"));
+
+        contract.validateGenerated(completedAndDelayedTaskSnapshot(), narrative);
+    }
+
+    @Test
+    void rejectsTaskScopedEvidenceReferencingAnotherTask() {
+        assertSnapshotError(riskNarrative(
+                "남은 체크리스트를 먼저 확인해야 합니다.",
+                List.of("task.TASK-02.checklistTotal"), List.of("TASK-01")));
+    }
+
+    @Test
+    void rejectsCompletedTaskAsInProgressEvidenceReference() {
+        assertSnapshotError(riskNarrative(
+                "진행 중 업무의 병목을 확인해야 합니다.",
+                List.of("tasks.inProgress"), List.of("TASK-01")));
+    }
+
+    @Test
+    void keepsTaskScopedEvidenceOnItsOwnTask() {
+        Narrative narrative = riskNarrative(
+                "남은 체크리스트를 먼저 확인해야 합니다.",
+                List.of("task.TASK-02.checklistTotal"), List.of("TASK-02"));
+
+        contract.validateGenerated(completedAndDelayedTaskSnapshot(), narrative);
+
+        assertThat(contract.compatibleNarrative(
+                narrative, completedAndDelayedTaskSnapshot())
+                .risks().getFirst().taskRefs()).containsExactly("TASK-02");
+    }
+
+    @Test
     void rejectsLiteralNumericClaim() {
         Narrative narrative = validNarrative();
         Narrative invalid = new Narrative(
@@ -256,6 +419,33 @@ class NarrativeContractTest {
         assertContractError(invalid, "AI_REPORT_PERSON_COMPARISON_INVALID");
     }
 
+    // 별칭 금지 규칙이 근거 placeholder까지 잡으면 업무·팀원 범위 수치를 한 글자도 쓸 수 없다.
+    @Test
+    void acceptsTaskScopedEvidencePlaceholderInNarrativeBody() {
+        Narrative narrative = riskNarrative(
+                "마감일 {{task.TASK-01.dueDate}}을 넘긴 항목부터 확인해야 합니다.",
+                List.of("task.TASK-01.dueDate"), List.of("TASK-01"));
+
+        contract.validateGenerated(completedAndDelayedTaskSnapshot(), narrative);
+
+        assertThat(contract.view(narrative, completedAndDelayedTaskSnapshot())
+                .risks().getFirst().text())
+                .isEqualTo("마감일 2026-07-24을 넘긴 항목부터 확인해야 합니다.");
+    }
+
+    @Test
+    void rejectsTaskAliasInNarrativeBody() {
+        Narrative narrative = validNarrative();
+        Narrative invalid = new Narrative(
+                narrative.headlineTemplate(),
+                new NarrativeItem("TASK-01의 기한을 다시 확인하세요.",
+                        List.of("tasks.total")),
+                narrative.changes(), narrative.achievements(), narrative.risks(),
+                narrative.topActions(), narrative.leaderDecisions(), narrative.limitations());
+
+        assertContractError(invalid, "AI_REPORT_REFERENCE_TEXT_INVALID");
+    }
+
     @Test
     void sendsMemberReferencesWithoutIndividualPerformanceMetrics() throws Exception {
         ReportSnapshot snapshot = completeSnapshot();
@@ -270,6 +460,25 @@ class NarrativeContractTest {
                 .containsExactly("MEMBER-01");
         assertThat(payload.path("metrics").path("members").isArray()).isTrue();
         assertThat(payload.path("metrics").path("members")).isEmpty();
+    }
+
+    private Narrative riskNarrative(
+            String text, List<String> evidenceKeys, List<String> taskRefs) {
+        Narrative narrative = validNarrative();
+        return new Narrative(
+                narrative.headlineTemplate(), narrative.summary(),
+                narrative.changes(), narrative.achievements(),
+                List.of(new RiskNarrativeItem(
+                        "MEDIUM", text, evidenceKeys, taskRefs, List.of())),
+                narrative.topActions(), narrative.leaderDecisions(), narrative.limitations());
+    }
+
+    private void assertSnapshotError(Narrative narrative) {
+        assertThatThrownBy(() -> contract.validateGenerated(
+                completedAndDelayedTaskSnapshot(), narrative))
+                .isInstanceOfSatisfying(ApplicationException.class,
+                        exception -> assertThat(exception.code())
+                                .isEqualTo("AI_REPORT_EVIDENCE_INVALID"));
     }
 
     private void assertContractError(Narrative narrative, String code) {
@@ -353,15 +562,27 @@ class NarrativeContractTest {
                                 0, 0, null, null, null, null, "MEMBER-01", List.of()),
                         new TaskContext(
                                 "TASK-02", "IN_PROGRESS", "URGENT", "OVERDUE",
-                                0, 0, null, null, null, null, "MEMBER-01", List.of())),
+                                3, 1, null, null, null, null, "MEMBER-01", List.of())),
                 List.of(),
-                Set.of("tasks.total", "tasks.delayed"),
+                Set.of("tasks.total", "tasks.delayed", "tasks.inProgress",
+                        "tasks.onHold", "task.TASK-02.checklistTotal",
+                        "task.TASK-01.dueDate"),
                 Set.of("MEMBER-01"));
         Map<String, EvidenceValue> evidence = Map.of(
                 "tasks.total",
                 new EvidenceValue("tasks.total", "전체 업무", "2", "NUMBER"),
                 "tasks.delayed",
-                new EvidenceValue("tasks.delayed", "지연 업무", "1", "NUMBER"));
+                new EvidenceValue("tasks.delayed", "지연 업무", "1", "NUMBER"),
+                "tasks.inProgress",
+                new EvidenceValue("tasks.inProgress", "진행 중 업무", "1", "COUNT"),
+                "tasks.onHold",
+                new EvidenceValue("tasks.onHold", "보류 업무", "0", "COUNT"),
+                "task.TASK-02.checklistTotal",
+                new EvidenceValue("task.TASK-02.checklistTotal",
+                        "TASK-02 체크리스트 전체", "3", "COUNT"),
+                "task.TASK-01.dueDate",
+                new EvidenceValue("task.TASK-01.dueDate",
+                        "TASK-01 마감일", "2026-07-24", "DATE"));
         return new ReportSnapshot(
                 metrics, comparison, context, new ReferenceIndex(List.of()), evidence);
     }

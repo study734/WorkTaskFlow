@@ -2,6 +2,7 @@ package com.teamproject.report.infrastructure;
 
 import com.teamproject.group.domain.GroupMember;
 import com.teamproject.group.domain.GroupMemberRepository;
+import com.teamproject.report.application.MemberPerformanceRule;
 import com.teamproject.report.application.MetricsSnapshotSource;
 import com.teamproject.report.application.ReportContracts.AiReportContext;
 import com.teamproject.report.application.ReportContracts.ChecklistMetrics;
@@ -77,9 +78,13 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
                 .map(GroupMember::getId).sorted().toList();
         PeriodData current = includeMembers(
                 periodData(groupId, period), period, activeMemberIds);
+        ReportPeriod previousPeriod = period.previous();
         PeriodData previous = includeMembers(
-                periodData(groupId, period.previous()), period.previous(), activeMemberIds);
-        ComparisonMetrics comparison = compare(current.metrics(), previous.metrics());
+                periodData(groupId, previousPeriod), previousPeriod, activeMemberIds);
+        // 월말에서 잘린 마지막 주차는 이전 주차와 길이가 달라 증감 비교가 성립하지 않는다.
+        ComparisonMetrics comparison = period.sameLengthAs(previousPeriod)
+                ? compare(current.metrics(), previous.metrics())
+                : new ComparisonMetrics(false, null, null, null, null, null, null);
 
         Map<Long, String> taskAliases = aliases(
                 current.snapshots().stream().map(ActivitySnapshot::taskId).toList(), "TASK");
@@ -95,9 +100,11 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
                 .toList();
         List<ObjectiveContext> objectiveContexts =
                 objectiveContexts(current.snapshots(), period, objectiveAliases);
+        Map<Long, TaskFlowMetrics.TaskFlow> flows =
+                TaskFlowMetrics.byTask(current.taskHistory(), period.toExclusive());
         Map<String, EvidenceValue> evidence =
                 evidenceValues(current.metrics(), comparison, current.snapshots(),
-                        taskAliases, objectiveContexts);
+                        taskAliases, objectiveAliases, objectiveContexts, flows, period);
         AiReportContext aiContext = new AiReportContext(current.metrics(), comparison,
                 taskContexts, objectiveContexts, evidence.keySet());
         ReferenceIndex referenceIndex = references(
@@ -145,7 +152,8 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
         HistoryCoverage coverage = new HistoryCoverage(partial
                 ? HistoryCoverageStatus.PARTIAL
                 : HistoryCoverageStatus.COMPLETE, trackingStartedAt);
-        return new PeriodData(calculate(period, snapshots, coverage), snapshots, activity);
+        return new PeriodData(calculate(period, snapshots, coverage), snapshots, activity,
+                data.taskHistory());
     }
 
     private MetricsSnapshot calculate(ReportPeriod period,
@@ -200,7 +208,7 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
                         || value.priority() == Priority.URGENT)
                 .count();
         Map<String, Integer> metricEvidence = metricEvidence(values.size(), statuses, delayed,
-                highPriority, completionRate, onTimeRate, checklist, coverage);
+                highPriority, completionRate, onTimeRate, averageHours, checklist, coverage);
         List<RiskSignal> risks = risks(statuses, delayed, highPriority);
         return new MetricsSnapshot(period.start(), period.end(), values.size(), statuses,
                 completionRate, onTimeRate, averageHours, coverage, checklist,
@@ -221,7 +229,8 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
                 value.averageCompletionHours(), value.historyCoverage(), value.checklist(),
                 value.daily(), memberMetrics(memberIds, byAssignee, overdueAt),
                 value.riskSignals(), value.evidence());
-        return new PeriodData(updated, data.snapshots(), data.activityEvents());
+        return new PeriodData(updated, data.snapshots(), data.activityEvents(),
+                data.taskHistory());
     }
 
     private ComparisonMetrics compare(MetricsSnapshot current, MetricsSnapshot previous) {
@@ -237,7 +246,10 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
                 Math.toIntExact(current.statuses().onHold() - previous.statuses().onHold()),
                 delta(current.completionRatePercent(), previous.completionRatePercent()),
                 delta(current.checklist().completionRatePercent(),
-                        previous.checklist().completionRatePercent()));
+                        previous.checklist().completionRatePercent()),
+                delta(current.onTimeRatePercent(), previous.onTimeRatePercent()),
+                hoursDelta(current.averageCompletionHours(),
+                        previous.averageCompletionHours()));
     }
 
     private TaskContext taskContext(ActivitySnapshot snapshot,
@@ -358,10 +370,16 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
 
     private Map<String, EvidenceValue> evidenceValues(MetricsSnapshot metrics,
             ComparisonMetrics comparison, List<ActivitySnapshot> snapshots,
-            Map<Long, String> taskAliases, List<ObjectiveContext> objectiveContexts) {
+            Map<Long, String> taskAliases, Map<Long, String> objectiveAliases,
+            List<ObjectiveContext> objectiveContexts,
+            Map<Long, TaskFlowMetrics.TaskFlow> flows, ReportPeriod period) {
         Map<String, EvidenceValue> result = new LinkedHashMap<>();
         metrics.evidence().forEach((key, value) -> result.put(key,
                 evidence(key, label(key), formatMetric(key, value), kind(key))));
+        dailyEvidence(result, metrics);
+        flowEvidence(result, metrics);
+        bottleneckEvidence(result, snapshots, taskAliases, flows, period);
+        memberEvidence(result, metrics);
         if (comparison.available()) {
             putDelta(result, "comparison.tasksTotalDelta", "지난주 대비 전체 업무",
                     comparison.totalTasksDelta());
@@ -376,6 +394,11 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
             putPercentDelta(result, "comparison.checklistRateDelta",
                     "지난주 대비 체크리스트 완료율",
                     comparison.checklistCompletionRateDeltaPercent());
+            putPercentDelta(result, "comparison.onTimeRateDelta",
+                    "지난주 대비 기한 준수율", comparison.onTimeRateDeltaPercent());
+            putHoursDelta(result, "comparison.avgCompletionHoursDelta",
+                    "지난주 대비 평균 완료 소요시간",
+                    comparison.averageCompletionHoursDelta());
         }
         for (ActivitySnapshot snapshot : snapshots) {
             String alias = taskAliases.get(snapshot.taskId());
@@ -389,7 +412,16 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
                 result.put(key, evidence(key, alias + " 보류 확인일",
                         snapshot.blockerReviewDate().toString(), "DATE"));
             }
+            if (snapshot.checklistTotal() > 0) {
+                String totalKey = "task." + alias + ".checklistTotal";
+                result.put(totalKey, evidence(totalKey, alias + " 체크리스트 전체",
+                        Integer.toString(snapshot.checklistTotal()), "COUNT"));
+                String completedKey = "task." + alias + ".checklistCompleted";
+                result.put(completedKey, evidence(completedKey, alias + " 체크리스트 완료",
+                        Integer.toString(snapshot.checklistCompleted()), "COUNT"));
+            }
         }
+        Map<String, Integer> objectiveActive = objectiveActiveCounts(snapshots, objectiveAliases);
         for (ObjectiveContext objective : objectiveContexts) {
             String prefix = "objective." + objective.objectiveRef();
             result.put(prefix + ".tasks", evidence(prefix + ".tasks",
@@ -401,6 +433,177 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
             result.put(prefix + ".onHold", evidence(prefix + ".onHold",
                     objective.objectiveRef() + " 보류 업무",
                     Integer.toString(objective.onHold()), "COUNT"));
+            result.put(prefix + ".delayed", evidence(prefix + ".delayed",
+                    objective.objectiveRef() + " 지연 업무",
+                    Integer.toString(objective.delayed()), "COUNT"));
+            result.put(prefix + ".active", evidence(prefix + ".active",
+                    objective.objectiveRef() + " 진행 중 업무",
+                    Integer.toString(objectiveActive.getOrDefault(
+                            objective.objectiveRef(), 0)), "COUNT"));
+        }
+        return result;
+    }
+
+    private void dailyEvidence(Map<String, EvidenceValue> target, MetricsSnapshot metrics) {
+        for (DailyMetric day : metrics.daily()) {
+            String prefix = "daily." + day.date();
+            target.put(prefix + ".created", evidence(prefix + ".created",
+                    day.date() + " 생성 업무", Long.toString(day.created()), "COUNT"));
+            target.put(prefix + ".completed", evidence(prefix + ".completed",
+                    day.date() + " 완료 업무", Long.toString(day.completed()), "COUNT"));
+        }
+    }
+
+    // 일별 시계열을 모델이 인용 가능한 형태로 요약한다. 동점일 때는 이른 날짜를 고정해 재현성을 지킨다.
+    private void flowEvidence(Map<String, EvidenceValue> target, MetricsSnapshot metrics) {
+        if (metrics.daily().isEmpty()) return;
+        DailyMetric peak = metrics.daily().stream()
+                .reduce((left, right) -> right.completed() > left.completed() ? right : left)
+                .orElseThrow();
+        if (peak.completed() > 0) {
+            target.put("flow.peakCompletedDay", evidence("flow.peakCompletedDay",
+                    "완료가 가장 많았던 날", peak.date().toString(), "DATE"));
+            target.put("flow.peakCompletedCount", evidence("flow.peakCompletedCount",
+                    "최다 완료일의 완료 업무", Long.toString(peak.completed()), "COUNT"));
+        }
+        long zeroDays = metrics.daily().stream()
+                .filter(day -> day.completed() == 0).count();
+        target.put("flow.zeroCompletionDays", evidence("flow.zeroCompletionDays",
+                "완료가 없던 날", Long.toString(zeroDays), "COUNT"));
+    }
+
+    /**
+     * 정체 신호를 근거로 발급한다. 값이 0인 키는 만들지 않는다 — 이미 KPI에 보이는 사실을 다시 말하게
+     * 만들 뿐이고, 근거 목록만 늘어난다. 여기서 나오는 값은 현재 어떤 화면에도 없다.
+     */
+    private void bottleneckEvidence(Map<String, EvidenceValue> target,
+            List<ActivitySnapshot> snapshots, Map<Long, String> taskAliases,
+            Map<Long, TaskFlowMetrics.TaskFlow> flows, ReportPeriod period) {
+        long longestBlocked = 0;
+        long longestApproval = 0;
+        int idleOverThree = 0;
+        int reopened = 0;
+        int overdueReview = 0;
+        for (ActivitySnapshot snapshot : snapshots) {
+            String alias = taskAliases.get(snapshot.taskId());
+            TaskFlowMetrics.TaskFlow flow = flows.get(snapshot.taskId());
+            if (alias == null || flow == null) continue;
+            putHours(target, "task." + alias + ".blockedHours",
+                    alias + " 보류 체류 시간", flow.blockedHours());
+            putHours(target, "task." + alias + ".approvalWaitHours",
+                    alias + " 승인 대기 시간", flow.approvalWaitHours());
+            putHours(target, "task." + alias + ".startLagHours",
+                    alias + " 착수 지연 시간", flow.startLagHours());
+            putCount(target, "task." + alias + ".reopenCount",
+                    alias + " 재개봉 횟수", flow.reopenCount());
+            putCount(target, "task." + alias + ".assigneeChangeCount",
+                    alias + " 담당자 변경 횟수", flow.assigneeChangeCount());
+            // 종결된 업무의 무활동 일수는 정체가 아니라 완료의 결과다. 발급하지 않는다.
+            boolean open = !TERMINAL.contains(snapshot.status());
+            if (open && flow.idleDays() > 0) {
+                String key = "task." + alias + ".idleDays";
+                target.put(key, evidence(key, alias + " 무활동 일수",
+                        Long.toString(flow.idleDays()), "DURATION_DAYS"));
+            }
+            longestBlocked = Math.max(longestBlocked, flow.blockedHours());
+            longestApproval = Math.max(longestApproval, flow.approvalWaitHours());
+            if (flow.reopenCount() > 0) reopened++;
+            if (open && flow.idleDays() >= 3) idleOverThree++;
+            // 보류 확인일 판정은 그룹 시간대의 기간 종료일 기준이다. 실행 시각을 쓰면 같은 리포트가
+            // 나중에 다시 열릴 때 값이 달라진다.
+            if (snapshot.status() == Status.ON_HOLD && snapshot.blockerReviewDate() != null
+                    && !snapshot.blockerReviewDate().isAfter(period.end())) {
+                overdueReview++;
+            }
+        }
+        putHours(target, "flow.longestBlockedHours", "가장 오래 막힌 업무의 보류 시간", longestBlocked);
+        putHours(target, "flow.longestApprovalWaitHours", "가장 긴 승인 대기 시간", longestApproval);
+        putCount(target, "flow.idleOverThreeDays", "3일 이상 무활동인 진행 업무", idleOverThree);
+        putCount(target, "flow.reopenedTaskCount", "재개봉된 업무", reopened);
+        putCount(target, "flow.overdueReviewCount", "보류 확인일이 지난 업무", overdueReview);
+    }
+
+    /**
+     * 팀원별 수치와 서버가 계산한 등급·점수·순위를 근거로 발급한다. 등급이 evidence에 있다는 사실이
+     * 곧 "이 리포트는 등급을 계산했다"는 표시이고, 프론트·뷰·검증기가 모두 이 존재 여부로 판정한다.
+     */
+    private void memberEvidence(Map<String, EvidenceValue> target, MetricsSnapshot metrics) {
+        List<MemberMetric> members = metrics.members();
+        if (members == null || members.isEmpty()) return;
+        Map<String, MemberPerformanceRule.Rating> ratings = MemberPerformanceRule.rate(members);
+        List<String> grades = new ArrayList<>();
+        for (MemberMetric member : members) {
+            String prefix = "member." + member.memberLabel();
+            putCount(target, prefix + ".assigned", member.memberLabel() + " 담당 업무",
+                    member.assigned());
+            putCount(target, prefix + ".active", member.memberLabel() + " 진행 업무",
+                    member.active());
+            putCount(target, prefix + ".completed", member.memberLabel() + " 완료 업무",
+                    member.completed());
+            putCount(target, prefix + ".delayed", member.memberLabel() + " 지연 업무",
+                    member.delayed());
+            putCount(target, prefix + ".onHold", member.memberLabel() + " 보류 업무",
+                    member.onHold());
+            putCount(target, prefix + ".checklistTotal",
+                    member.memberLabel() + " 체크리스트 전체", member.checklistTotal());
+            putCount(target, prefix + ".checklistCompleted",
+                    member.memberLabel() + " 체크리스트 완료", member.checklistCompleted());
+            putPercent(target, prefix + ".completionRate",
+                    member.memberLabel() + " 완료율", member.completionRatePercent());
+            putPercent(target, prefix + ".onTimeRate",
+                    member.memberLabel() + " 기한 준수율", member.onTimeRatePercent());
+            putPercent(target, prefix + ".checklistRate",
+                    member.memberLabel() + " 체크리스트 완료율",
+                    MemberPerformanceRule.checklistRate(member));
+            MemberPerformanceRule.Rating rating = ratings.get(member.memberLabel());
+            if (rating == null) continue;
+            target.put(prefix + ".grade", evidence(prefix + ".grade",
+                    member.memberLabel() + " 성과 등급", rating.grade(), "GRADE"));
+            if (rating.score() != null) {
+                target.put(prefix + ".score", evidence(prefix + ".score",
+                        member.memberLabel() + " 성과 점수",
+                        Integer.toString(rating.score()), "SCORE"));
+            }
+            if (rating.rank() != null) {
+                target.put(prefix + ".rank", evidence(prefix + ".rank",
+                        member.memberLabel() + " 성과 순위", rating.rank(), "RANK"));
+            }
+            if (rating.rated()) grades.add(rating.grade());
+        }
+        if (grades.isEmpty()) return;
+        List<String> sorted = grades.stream().sorted().toList();
+        target.put("members.ratedCount", evidence("members.ratedCount",
+                "평가 대상 팀원", Integer.toString(grades.size()), "COUNT"));
+        target.put("members.topGrade", evidence("members.topGrade",
+                "가장 높은 성과 등급", sorted.getFirst(), "GRADE"));
+        target.put("members.lowestGrade", evidence("members.lowestGrade",
+                "가장 낮은 성과 등급", sorted.getLast(), "GRADE"));
+    }
+
+    private void putPercent(Map<String, EvidenceValue> target,
+            String key, String label, Integer value) {
+        if (value != null) target.put(key, evidence(key, label, value + "%", "PERCENT"));
+    }
+
+    private void putHours(Map<String, EvidenceValue> target,
+            String key, String label, long value) {
+        if (value > 0) {
+            target.put(key, evidence(key, label, Long.toString(value), "DURATION_HOURS"));
+        }
+    }
+
+    private void putCount(Map<String, EvidenceValue> target,
+            String key, String label, long value) {
+        if (value > 0) target.put(key, evidence(key, label, Long.toString(value), "COUNT"));
+    }
+
+    private Map<String, Integer> objectiveActiveCounts(
+            List<ActivitySnapshot> snapshots, Map<Long, String> objectiveAliases) {
+        Map<String, Integer> result = new LinkedHashMap<>();
+        for (ActivitySnapshot snapshot : snapshots) {
+            String alias = objectiveAliases.get(snapshot.weeklyObjectiveId());
+            if (alias == null || TERMINAL.contains(snapshot.status())) continue;
+            result.merge(alias, 1, Integer::sum);
         }
         return result;
     }
@@ -424,19 +627,29 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
             long memberOnTime = completedWithDue.stream()
                     .filter(value -> !value.completedAt().isAfter(value.dueAt()))
                     .count();
+            long memberChecklistTotal =
+                    assigned.stream().mapToLong(ActivitySnapshot::checklistTotal).sum();
+            long memberChecklistCompleted =
+                    assigned.stream().mapToLong(ActivitySnapshot::checklistCompleted).sum();
+            long memberCompleted = count(assigned, Status.COMPLETED);
             result.add(new MemberMetric(String.format("MEMBER-%02d", index + 1), assigned.size(),
                     assigned.stream().filter(value -> !TERMINAL.contains(value.status())).count(),
-                    count(assigned, Status.COMPLETED),
+                    memberCompleted,
                     assigned.stream().filter(value -> value.delayedAt(overdueAt)).count(),
                     completedWithDue.isEmpty() ? null
-                            : percent(memberOnTime, completedWithDue.size())));
+                            : percent(memberOnTime, completedWithDue.size()),
+                    count(assigned, Status.ON_HOLD),
+                    memberChecklistTotal,
+                    memberChecklistCompleted,
+                    assigned.isEmpty() ? null
+                            : percent(memberCompleted, assigned.size())));
         }
         return result;
     }
 
     private Map<String, Integer> metricEvidence(int total, StatusMetrics statuses, long delayed,
             int highPriority, Integer completionRate, Integer onTimeRate,
-            ChecklistMetrics checklist, HistoryCoverage coverage) {
+            Long averageHours, ChecklistMetrics checklist, HistoryCoverage coverage) {
         Map<String, Integer> evidence = new LinkedHashMap<>();
         evidence.put("tasks.total", total);
         evidence.put("tasks.completed", Math.toIntExact(statuses.completed()));
@@ -444,12 +657,20 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
         evidence.put("tasks.onHold", Math.toIntExact(statuses.onHold()));
         evidence.put("tasks.delayed", Math.toIntExact(delayed));
         evidence.put("tasks.highPriority", highPriority);
+        evidence.put("tasks.requested", Math.toIntExact(statuses.requested()));
+        evidence.put("tasks.todo", Math.toIntExact(statuses.todo()));
+        evidence.put("tasks.inProgress", Math.toIntExact(statuses.inProgress()));
+        evidence.put("tasks.rejected", Math.toIntExact(statuses.rejected()));
+        evidence.put("tasks.cancelled", Math.toIntExact(statuses.cancelled()));
         evidence.put("checklist.total", Math.toIntExact(checklist.total()));
         evidence.put("checklist.completed", Math.toIntExact(checklist.completed()));
         if (completionRate != null) evidence.put("rates.completion", completionRate);
         if (onTimeRate != null) evidence.put("rates.onTime", onTimeRate);
         if (checklist.completionRatePercent() != null) {
             evidence.put("rates.checklistCompletion", checklist.completionRatePercent());
+        }
+        if (averageHours != null) {
+            evidence.put("time.averageCompletionHours", Math.toIntExact(averageHours));
         }
         if (coverage.partial()) evidence.put("coverage.partial", 1);
         return evidence;
@@ -490,6 +711,12 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
                 evidence(key, label, signed(value) + "%p", "PERCENTAGE_POINT_DELTA"));
     }
 
+    private void putHoursDelta(Map<String, EvidenceValue> target,
+            String key, String label, Integer value) {
+        if (value != null) target.put(key,
+                evidence(key, label, signed(value), "DURATION_HOURS_DELTA"));
+    }
+
     private String signed(int value) {
         return value > 0 ? "+" + value : Integer.toString(value);
     }
@@ -500,6 +727,7 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
 
     private String kind(String key) {
         if (key.startsWith("rates.")) return "PERCENT";
+        if ("time.averageCompletionHours".equals(key)) return "DURATION_HOURS";
         if ("coverage.partial".equals(key)) return "FLAG";
         return "COUNT";
     }
@@ -512,11 +740,17 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
             case "tasks.onHold" -> "보류 업무";
             case "tasks.delayed" -> "지연 업무";
             case "tasks.highPriority" -> "높은 우선순위 업무";
+            case "tasks.requested" -> "요청 업무";
+            case "tasks.todo" -> "할 일 업무";
+            case "tasks.inProgress" -> "진행 중 업무";
+            case "tasks.rejected" -> "반려 업무";
+            case "tasks.cancelled" -> "취소 업무";
             case "checklist.total" -> "체크리스트 전체";
             case "checklist.completed" -> "체크리스트 완료";
             case "rates.completion" -> "업무 완료율";
             case "rates.onTime" -> "기한 준수율";
             case "rates.checklistCompletion" -> "체크리스트 완료율";
+            case "time.averageCompletionHours" -> "평균 완료 소요시간";
             case "coverage.partial" -> "부분 이력";
             default -> key;
         };
@@ -528,6 +762,11 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
 
     private Integer delta(Integer current, Integer previous) {
         return current == null || previous == null ? null : current - previous;
+    }
+
+    private Integer hoursDelta(Long current, Long previous) {
+        return current == null || previous == null
+                ? null : Math.toIntExact(current - previous);
     }
 
     private long count(List<ActivitySnapshot> values, Status status) {
@@ -553,7 +792,13 @@ public class TaskMetricsSnapshotSource implements MetricsSnapshotSource {
     private record PeriodData(
             MetricsSnapshot metrics,
             List<ActivitySnapshot> snapshots,
-            List<ActivityEvent> activityEvents) {}
+            List<ActivityEvent> activityEvents,
+            List<ActivityEvent> taskHistory) {
+        PeriodData(MetricsSnapshot metrics, List<ActivitySnapshot> snapshots,
+                List<ActivityEvent> activityEvents) {
+            this(metrics, snapshots, activityEvents, List.of());
+        }
+    }
 
     private record ActivitySnapshot(
             Long taskId,

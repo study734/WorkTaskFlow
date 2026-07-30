@@ -68,7 +68,7 @@ public class OpenAiResponsesNarrativeAdapter implements AiNarrativeGenerator {
                     ResponseCreateParams.builder()
                             .model(model)
                             .store(false)
-                            .maxOutputTokens(1600)
+                            .maxOutputTokens(5000)
                             .instructions(contract.instructions(input.language()))
                             .input(contract.writeAiContext(input.context()))
                             .text(contract.responseType())
@@ -87,13 +87,16 @@ public class OpenAiResponsesNarrativeAdapter implements AiNarrativeGenerator {
             log.warn("event=AI_REPORT_CALL outcome=IO_ERROR");
             throw providerUnavailable();
         } catch (OpenAIInvalidDataException exception) {
-            log.warn("event=AI_REPORT_CALL outcome=INVALID_RESPONSE");
+            log.warn("event=AI_REPORT_CALL outcome=INVALID_RESPONSE cause=INVALID_DATA");
             throw invalid("AI_REPORT_RESPONSE_INVALID");
         } catch (OpenAIException exception) {
             log.warn("event=AI_REPORT_CALL outcome=PROVIDER_ERROR");
             throw providerUnavailable();
         } catch (RuntimeException exception) {
-            log.warn("event=AI_REPORT_CALL outcome=INVALID_RESPONSE");
+            // 계약 위반 지점을 좁히기 위해 예외 종류만 남긴다. 응답 본문은 로그에 넣지 않는다.
+            log.warn("event=AI_REPORT_CALL outcome=INVALID_RESPONSE cause={} detail={}",
+                    exception.getClass().getSimpleName(),
+                    exception instanceof IllegalArgumentException ? exception.getMessage() : "-");
             throw invalid("AI_REPORT_RESPONSE_INVALID");
         }
     }
@@ -101,6 +104,13 @@ public class OpenAiResponsesNarrativeAdapter implements AiNarrativeGenerator {
     private AiGenerationResult parse(StructuredResponse<GeneratedNarrative> response) {
         if (response == null
                 || response.status().filter(ResponseStatus.COMPLETED::equals).isEmpty()) {
+            // 잘림 원인을 토큰 예산으로 좁힐 수 있게 개수만 남긴다. 응답 원문은 로그에 남기지 않는다.
+            ResponseUsage incompleteUsage =
+                    response == null ? null : response.usage().orElse(null);
+            log.warn("event=AI_REPORT_CALL outcome=INCOMPLETE status={} inputTokens={} outputTokens={}",
+                    response == null ? "NONE" : response.status().map(Object::toString).orElse("NONE"),
+                    incompleteUsage == null ? -1 : incompleteUsage.inputTokens(),
+                    incompleteUsage == null ? -1 : incompleteUsage.outputTokens());
             throw invalid("AI_REPORT_INCOMPLETE");
         }
         GeneratedNarrative generated = null;

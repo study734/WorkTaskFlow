@@ -82,6 +82,60 @@ provider에 보내 운영 요약 초안을 만든다. 팀장은 초안을 편집
 재현할 수 없음을 나타낸다. 생성된 revision의 metrics, AI context, reference index, evidence도 함께
 동결해 이후 업무 수정이 과거 리포트를 바꾸지 않게 한다.
 
+발급하는 evidence key 계열은 다음과 같다. 서술의 모든 숫자·날짜는 이 키의 placeholder로만 표기한다.
+
+| 계열 | 키 | 비고 |
+|---|---|---|
+| 상태 개수 | `tasks.total\|completed\|active\|onHold\|delayed\|highPriority\|requested\|todo\|inProgress\|rejected\|cancelled` | |
+| 체크리스트 | `checklist.total\|completed` | |
+| 비율 | `rates.completion\|onTime\|checklistCompletion` | 값이 없으면 미발급 |
+| 소요시간 | `time.averageCompletionHours` | 완료 업무가 없으면 미발급 |
+| 주간 비교 | `comparison.tasksTotalDelta\|completedDelta\|delayedDelta\|onHoldDelta\|completionRateDelta\|checklistRateDelta\|onTimeRateDelta\|avgCompletionHoursDelta` | `BASELINE`에서는 전량 미발급 |
+| 일별 | `daily.<ISO date>.created\|completed` | 기간의 7일 |
+| 흐름 요약 | `flow.peakCompletedDay\|peakCompletedCount\|zeroCompletionDays` | 완료가 0이면 peak 미발급 |
+| 업무 | `task.TASK-NN.dueDate\|blockerReviewDate\|checklistTotal\|checklistCompleted` | 해당 값이 있는 업무만 |
+| 목표 | `objective.GOAL-NN.tasks\|completed\|onHold\|delayed\|active` | |
+| 정체 | `task.TASK-NN.blockedHours\|approvalWaitHours\|startLagHours\|reopenCount\|assigneeChangeCount\|idleDays` | 값이 0이면 미발급. `idleDays`는 **비종결 업무만** |
+| 흐름 정체 | `flow.longestBlockedHours\|longestApprovalWaitHours\|idleOverThreeDays\|reopenedTaskCount\|overdueReviewCount` | 값이 0이면 미발급 |
+| 팀원 | `member.MEMBER-NN.assigned\|active\|completed\|delayed\|onHold\|checklistTotal\|checklistCompleted\|completionRate\|onTimeRate\|checklistRate` | |
+| 팀원 성과 | `member.MEMBER-NN.score\|grade\|rank`, `members.ratedCount\|topGrade\|lowestGrade` | 「팀원 성과 등급」 참조 |
+| 이력 | `coverage.partial` | 부분 이력일 때만 |
+
+### 정체 시간 계산
+
+`task_activity_events`의 `task_status`는 그 변경 **이후**의 상태이므로, 한 이벤트부터 다음 이벤트까지가
+그 상태의 체류 구간이다. 마지막 구간은 기간 종료 시각에서 끊어 동결 값이 재현되게 한다.
+`occurred_at`은 UTC로 일관 저장되고 두 값의 **차이만** 사용하므로 서버 시간대 영향이 없다.
+
+체류 시간은 **기간 시작 이전 구간까지 포함**한다 — 최신 스냅샷을 뽑을 때 이미 조회하는 결과집합
+(`findAllByTaskIdInAndOccurredAtLessThan...`)을 재사용하므로 추가 쿼리가 없다. 이 때문에 "3주째 막혀
+있다"를 말할 수 있다.
+
+`flow.overdueReviewCount`는 그룹 시간대의 **기간 종료일** 기준으로 판정한다. 실행 시각을 쓰면 같은
+리포트를 나중에 다시 열 때 값이 달라진다.
+
+### 팀원 성과 등급
+
+서버가 동결된 `metrics.members[]`만으로 계산하며 부동소수를 쓰지 않는다(같은 입력은 항상 같은 등급).
+
+```
+completionRate / onTimeRate / checklistRate 중 산출된 항목만 가중 평균
+  가중치 45 / 30 / 25
+penalty = min(20, 지연비중/2) + min(10, 5 × 보류건수)
+score   = clamp(가중평균 − penalty, 0, 100)
+grade   = A≥85 · B≥70 · C≥55 · D≥40 · E<40
+rank    = score 내림차순, 동점은 완료 많은 순 → 지연 적은 순 → 별칭 순. 표준 경쟁 순위(1,2,2,4)
+```
+
+배정 업무가 없거나 산출 근거가 하나도 없으면 `NOT_RATED`이며 순위에서 제외하고, 화면은 낮은 등급이
+아니라 "평가 대상 아님"으로 표시한다. 등급은 evidence에 `member.*.grade` 키가 있을 때만 노출하므로
+이 규칙 이전에 생성된 리포트에는 등급이 나타나지 않는다(구 `metrics_json`의 0/null로 등급을 지어내지
+않기 위한 장치).
+
+`task.TASK-NN.*`는 그 업무만, `objective.GOAL-NN.*`는 그 목표에 연결된 업무만 `taskRefs`로 참조할 수
+있다. 상태·흐름 키도 해당 상태의 업무만 참조할 수 있고, 위반하면 생성은 거부되고 저장본은 참조에서
+제외된다.
+
 ## 기본 PDF와 AI PDF
 
 ### 기본 PDF
@@ -249,7 +303,10 @@ frozen TEAM 값을 유지한다. 개인 KPI는 운영 상세에 추가되며 TEA
   `OVERDUE_PRESENT`, `ON_HOLD_PRESENT`, `HIGH_PRIORITY_PRESENT`, 같은 code의 frozen 배열
   index 순서로 정렬한다.
 - unknown server code는 known code 뒤에 두고 unknown끼리는 frozen 배열 순서를 유지한다.
-- `MEMBER_COMPARISON`은 frozen 배열 순서만 사용하며 성과 순위, 등급, 상대평가를 만들지 않는다.
+- `MEMBER_COMPARISON`의 행 정렬은 frozen 배열 순서를 사용한다.
+- 팀원 성과 등급·점수·순위는 **서버가 동결 지표에서 결정적 규칙으로 계산**해 evidence로 발급한다
+  (「팀원 성과 등급」절). AI는 등급을 계산하거나 바꾸지 않으며, 태도·능력·의욕을 추론하지 않는다.
+  배정 업무가 없거나 산출 근거가 없는 팀원은 `NOT_RATED`이며 순위에서 제외한다.
 - `member.ref`와 `task.ref`의 최종 정렬은 locale 정렬이 아닌 대소문자 구분 ordinal 오름차순을
   사용한다.
 
@@ -352,8 +409,8 @@ Provider 전송 금지:
 | `AI_REPORT_ENABLED` | `false` | 운영·QA 승인 전 비활성화 |
 | `OPENAI_API_KEY` | 빈 값 | 서버 전용 secret, `VITE_` 금지 |
 | `OPENAI_MODEL` | `gpt-5.6-luna` | 환경별 승인 모델 |
-| `OPENAI_REQUEST_TIMEOUT` | `45s` | SDK 요청 전체 `timeout(Duration)` |
-| `AI_REPORT_GENERATION_LEASE` | `2m` | provider timeout보다 길게 설정 |
+| `OPENAI_REQUEST_TIMEOUT` | `90s` | SDK 요청 전체 `timeout(Duration)` |
+| `AI_REPORT_GENERATION_LEASE` | `4m` | provider timeout보다 길게 설정 |
 
 SDK에 없는 별도 connect/read timeout을 노출하지 않는다. 자동 재시도는 `maxRetries(0)`으로 유지하고,
 애플리케이션의 revision·attempt 소유권으로 중복 호출과 stale worker를 통제한다.

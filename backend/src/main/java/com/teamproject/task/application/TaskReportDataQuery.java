@@ -19,11 +19,22 @@ public interface TaskReportDataQuery {
 
     Map<Long, ObjectiveReference> objectiveReferences(Collection<Long> objectiveIds);
 
+    /**
+     * {@code taskHistory}는 기간 내 활동이 있던 업무의 <em>기간 시작 이전까지 포함한</em> 전체 이벤트다.
+     * 상태별 체류 시간을 창 밖에서 시작된 구간까지 계산하기 위한 것으로, 최신 스냅샷을 뽑을 때 이미
+     * 조회하는 결과집합을 재사용하므로 추가 쿼리가 없다.
+     */
     record PeriodData(
             Instant trackingStartedAt,
             List<ActivityEvent> activityEvents,
             List<TaskSnapshot> latestSnapshots,
-            List<TaskSnapshot> legacySnapshots) {}
+            List<TaskSnapshot> legacySnapshots,
+            List<ActivityEvent> taskHistory) {
+        public PeriodData(Instant trackingStartedAt, List<ActivityEvent> activityEvents,
+                List<TaskSnapshot> latestSnapshots, List<TaskSnapshot> legacySnapshots) {
+            this(trackingStartedAt, activityEvents, latestSnapshots, legacySnapshots, List.of());
+        }
+    }
 
     record ActivityEvent(
             Long taskId,
