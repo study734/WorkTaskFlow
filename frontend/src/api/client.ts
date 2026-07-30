@@ -21,12 +21,14 @@ export async function request<T>(path: string, init: RequestInit = {}, authentic
   return performRequest<T>(path, init, authenticated, true);
 }
 
-export async function requestBlob(path: string, filenameFallback: string) {
+export async function requestBlob(path: string, filenameFallback: string, init: RequestInit = {}) {
   async function run(allowRefresh: boolean): Promise<{ blob: Blob; filename: string }> {
-    const headers = new Headers();
+    const headers = new Headers(init.headers);
     const token = accessToken.get();
     if (token) headers.set('Authorization', `Bearer ${token}`);
-    const response = await fetchWithTimeout(`${API_BASE}${path}`, { headers, credentials: 'include' }, DOWNLOAD_TIMEOUT_MS);
+    // POST 다운로드(기본 PDF)는 JSON 본문을 보내므로 Content-Type이 필요하다.
+    if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+    const response = await fetchWithTimeout(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' }, DOWNLOAD_TIMEOUT_MS);
     if (response.status === 401 && allowRefresh) {
       await refreshAccessToken();
       return run(false);

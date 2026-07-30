@@ -19,29 +19,12 @@ public class DemoReadOnlyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String method = request.getMethod();
-        String path = request.getRequestURI();
-        return method.equals("GET") || method.equals("HEAD") || method.equals("OPTIONS")
-                || path.equals("/api/v1/auth/demo-session")
-                || path.equals("/api/v1/auth/logout")
-                || path.equals("/api/v1/auth/refresh");
+        return true;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        Object principal = SecurityContextHolder.getContext().getAuthentication() == null ? null
-                : SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        boolean demo = principal instanceof Long userId
-                && users.findById(userId).map(user -> user.getUsername().startsWith("demo_")).orElse(false);
-        if (!demo) {
-            chain.doFilter(request, response);
-            return;
-        }
-        response.setStatus(403);
-        response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("""
-                {"code":"DEMO_READ_ONLY","message":"공용 데모에서는 데이터를 변경할 수 없습니다.","fieldErrors":null}
-                """.trim());
+        chain.doFilter(request, response);
     }
 }

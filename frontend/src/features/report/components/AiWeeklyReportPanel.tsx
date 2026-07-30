@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ApiError, errorMessage, saveDownloadedFile } from '../../../api/client';
+import { ApiError, errorMessage, saveBlob } from '../../../api/client';
 import { GroupResponse } from '../../../api/groupApi';
 import {
   CompletedWeeklyAiReport,
@@ -241,7 +241,8 @@ export function AiWeeklyReportPanel({
     setSubmitting(true);
     setMessage('');
     try {
-      saveDownloadedFile(await reportApi.downloadWeeklyAiPdf(groupId, report.reportId));
+      const file = await reportApi.downloadWeeklyAiPdf(groupId, report.reportId);
+      saveBlob(file.blob, file.filename);
     } catch (value) {
       setMessage(errorMessage(value));
     } finally {

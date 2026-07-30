@@ -3,7 +3,7 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 import { accessToken, errorMessage } from '../../../api/client';
 import { commentApi, CommentResponse } from '../../../api/commentApi';
 import { groupApi, GroupResponse, MemberResponse } from '../../../api/groupApi';
-import { ChecklistItemResponse, ChecklistResponse, taskApi, TaskAction, TaskHistoryResponse, TaskResponse } from '../../../api/taskApi';
+import { BlockerNextActionType, BlockerType, ChecklistItemResponse, ChecklistResponse, taskApi, TaskAction, TaskHistoryResponse, TaskResponse, TransitionOptions } from '../../../api/taskApi';
 import { AppNavigation, Modal } from '../../../app/AppNavigation';
 import { useLanguage } from '../../../app/LanguageContext';
 import { ResourcePanel } from '../../resource/ResourcePanel';
@@ -14,6 +14,14 @@ const statusLabels: Record<TaskResponse['status'], [string, string]> = {
 };
 const priorityLabels: Record<TaskResponse['priority'], [string, string]> = {
   LOW: ['낮음', 'Low'], NORMAL: ['보통', 'Normal'], HIGH: ['높음', 'High'], URGENT: ['긴급', 'Urgent'],
+};
+const blockerTypeLabels: Record<BlockerType, [string, string]> = {
+  DEPENDENCY: ['선행 업무 대기', 'Waiting on another task'], DECISION: ['의사결정 대기', 'Waiting on a decision'], ACCESS: ['권한·접근 부족', 'Missing access'],
+  RESOURCE: ['자원·인력 부족', 'Not enough resources'], TECHNICAL: ['기술 문제', 'Technical issue'], EXTERNAL: ['외부 요인', 'External party'], OTHER: ['기타', 'Other'],
+};
+const blockerNextActionLabels: Record<BlockerNextActionType, [string, string]> = {
+  FOLLOW_UP: ['후속 확인', 'Follow up'], ESCALATE: ['상위 보고', 'Escalate'], DECIDE: ['결정 요청', 'Request a decision'], UNBLOCK_ACCESS: ['권한 확보', 'Get access'],
+  REPLAN: ['계획 재수립', 'Replan'], WAIT_EXTERNAL: ['외부 응답 대기', 'Wait for external reply'], OTHER: ['기타', 'Other'],
 };
 const actionLabels: Record<TaskAction, [string, string]> = {
   ACCEPT: ['요청 승인', 'Approve request'], REJECT: ['요청 반려', 'Reject request'], START: ['업무 시작', 'Start task'], HOLD: ['업무 보류', 'Put on hold'],
@@ -46,6 +54,9 @@ export function TaskDetailPage() {
   const [pending, setPending] = useState(false);
   const [reasonAction, setReasonAction] = useState<TaskAction>();
   const [actionReason, setActionReason] = useState('');
+  const [blockerType, setBlockerType] = useState<BlockerType | ''>('');
+  const [blockerNextActionType, setBlockerNextActionType] = useState<BlockerNextActionType | ''>('');
+  const [blockerReviewDate, setBlockerReviewDate] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -73,7 +84,7 @@ export function TaskDetailPage() {
   async function transition(action: TaskAction) {
     if (!task) return;
     if (action === 'REJECT' || action === 'HOLD' || action === 'REOPEN' || action === 'CANCEL') {
-      setReasonAction(action); setActionReason(''); return;
+      setReasonAction(action); setActionReason(''); clearBlockerFields(); setError(''); return;
     }
     await performTransition(action);
   }
@@ -81,13 +92,27 @@ export function TaskDetailPage() {
   async function performTransition(action: TaskAction, reason?: string) {
     if (!task) return;
     if (reasonAction && !reason?.trim()) { setError(t('상태 변경 사유를 입력해 주세요.', 'Enter a reason for this status change.')); return; }
+    const options: TransitionOptions = { reason: reason?.trim() };
+    if (action === 'HOLD') {
+      if (!blockerType || !blockerNextActionType || !blockerReviewDate) {
+        setError(t('보류 유형, 다음 조치, 확인 날짜를 모두 선택해 주세요.', 'Select a blocker type, next action, and review date.'));
+        return;
+      }
+      if (blockerReviewDate < groupToday(group?.timezone)) {
+        setError(t('보류 확인일은 오늘 이후여야 합니다.', 'The review date must be today or later.'));
+        return;
+      }
+      options.blockerType = blockerType;
+      options.blockerNextActionType = blockerNextActionType;
+      options.blockerReviewDate = blockerReviewDate;
+    }
     setPending(true);
     setError('');
     try {
-      const updated = await taskApi.transition(task.id, action, task.version, reason?.trim());
+      const updated = await taskApi.transition(task.id, action, task.version, options);
       setTask(updated);
       setHistories(await taskApi.histories(task.id));
-      setReasonAction(undefined); setActionReason('');
+      setReasonAction(undefined); setActionReason(''); clearBlockerFields();
       window.dispatchEvent(new Event('notifications:refresh'));
     } catch (caught) {
       setError(errorMessage(caught));
@@ -255,6 +280,10 @@ export function TaskDetailPage() {
     }
   }
 
+  function clearBlockerFields() {
+    setBlockerType(''); setBlockerNextActionType(''); setBlockerReviewDate('');
+  }
+
   function syncEditFields(value: TaskResponse) {
     setEditTitle(value.title);
     setEditDescription(value.description ?? '');
@@ -327,7 +356,25 @@ export function TaskDetailPage() {
       <ResourcePanel groupId={task.groupId} taskId={task.id} />
       <section className="task-action-section"><h2>{t('상태 이력', 'Status history')}</h2><div className="task-history-list">{histories.map((history) => <div className="task-history-item" key={history.id}><span className="task-history-dot" /><div><strong>{history.fromStatus ? `${label(statusLabels[history.fromStatus])} → ` : ''}{label(statusLabels[history.toStatus])}</strong><small>{t(`멤버 #${history.changedByMemberId}`, `Member #${history.changedByMemberId}`)} · {formatDate(history.createdAt, language)}</small>{history.reason && <p>{history.reason}</p>}</div></div>)}</div></section>
     </>}
-  </section>{reasonAction && <Modal title={label(actionLabels[reasonAction])} description={t('업무 이력에 남을 사유를 입력해 주세요.', 'Enter a reason to keep in the task history.')} onClose={() => { setReasonAction(undefined); setActionReason(''); setError(''); }}><form className="form modal-form" onSubmit={(event) => { event.preventDefault(); void performTransition(reasonAction, actionReason); }}><label className="field"><span>{t('사유', 'Reason')}</span><textarea autoFocus required maxLength={500} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={t('팀원이 이해할 수 있도록 간단히 적어주세요.', 'Add a short explanation for the team.')} /></label>{error && <p className="error">{error}</p>}<div className="modal-actions"><button className="secondary" type="button" onClick={() => setReasonAction(undefined)}>{t('돌아가기', 'Back')}</button><button className="danger" disabled={pending || !actionReason.trim()}>{pending ? t('처리 중...', 'Processing...') : label(actionLabels[reasonAction])}</button></div></form></Modal>}</main></>;
+  </section>{reasonAction && <Modal
+    title={label(actionLabels[reasonAction])}
+    description={reasonAction === 'HOLD'
+      ? t('업무 이력에 남을 사유와 보류 상황을 입력해 주세요.', 'Describe the hold and record its blocker details for the task history.')
+      : t('업무 이력에 남을 사유를 입력해 주세요.', 'Enter a reason to keep in the task history.')}
+    onClose={() => { setReasonAction(undefined); setActionReason(''); clearBlockerFields(); setError(''); }}
+  ><form className="form modal-form" onSubmit={(event) => { event.preventDefault(); void performTransition(reasonAction, actionReason); }}>
+    <label className="field"><span>{t('사유', 'Reason')}</span><textarea autoFocus required maxLength={500} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={t('팀원이 이해할 수 있도록 간단히 적어주세요.', 'Add a short explanation for the team.')} /></label>
+    {reasonAction === 'HOLD' && <>
+      <div className="form-row">
+        <label className="field"><span>{t('보류 유형', 'Blocker type')}</span><select required value={blockerType} onChange={(event) => setBlockerType(event.target.value as BlockerType)}><option value="">{t('선택해 주세요', 'Select one')}</option>{Object.entries(blockerTypeLabels).map(([value, valueLabel]) => <option value={value} key={value}>{label(valueLabel)}</option>)}</select></label>
+        <label className="field"><span>{t('다음 조치', 'Next action')}</span><select required value={blockerNextActionType} onChange={(event) => setBlockerNextActionType(event.target.value as BlockerNextActionType)}><option value="">{t('선택해 주세요', 'Select one')}</option>{Object.entries(blockerNextActionLabels).map(([value, valueLabel]) => <option value={value} key={value}>{label(valueLabel)}</option>)}</select></label>
+      </div>
+      <label className="field"><span>{t('확인 날짜', 'Review date')}</span><input type="date" required min={groupToday(group?.timezone)} value={blockerReviewDate} onChange={(event) => setBlockerReviewDate(event.target.value)} /></label>
+      <p className="field-help">{t('보류 유형·다음 조치·확인 날짜는 AI 주간 리포트의 근거로 사용됩니다. 자유 입력 사유는 팀에게만 표시되고 AI에 전송되지 않습니다.', 'The blocker type, next action, and review date are used as evidence in the AI weekly report. The free-text reason stays with your team and is never sent to the AI.')}</p>
+    </>}
+    {error && <p className="error">{error}</p>}
+    <div className="modal-actions"><button className="secondary" type="button" onClick={() => { setReasonAction(undefined); setActionReason(''); clearBlockerFields(); setError(''); }}>{t('돌아가기', 'Back')}</button><button className="danger" disabled={pending || !actionReason.trim() || (reasonAction === 'HOLD' && (!blockerType || !blockerNextActionType || !blockerReviewDate))}>{pending ? t('처리 중...', 'Processing...') : label(actionLabels[reasonAction])}</button></div>
+  </form></Modal>}</main></>;
 }
 
 function TaskWorkflow({ status }: { status: TaskResponse['status'] }) {
@@ -465,6 +512,15 @@ function canWriteChecklist(task: TaskResponse, group?: GroupResponse) {
 
 function withinCommentEditWindow(createdAt: string) {
   return Date.now() - new Date(createdAt).getTime() <= 15 * 60 * 1000;
+}
+
+function groupToday(timezone?: string) {
+  const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit' };
+  try {
+    return new Intl.DateTimeFormat('en-CA', { ...options, timeZone: timezone }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat('en-CA', options).format(new Date());
+  }
 }
 
 function formatDate(value: string, language: 'ko' | 'en') {

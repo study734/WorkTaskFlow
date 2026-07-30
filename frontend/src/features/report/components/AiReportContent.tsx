@@ -4,6 +4,7 @@ import {
   DecisionNarrativeItemView,
   EvidenceValue,
   LocalReference,
+  MemberWorkView,
   NarrativeItemView,
   RiskNarrativeItemView,
   TaskWorkView,
@@ -58,6 +59,9 @@ const AI_RISK_SEVERITY_RANK: Record<RiskNarrativeItemView['severity'], number> =
   MEDIUM: 1,
   LOW: 2,
 };
+// 결정 코어가 상단 4개를 이미 보여주므로 상세 지표 행은 나머지만 이어서 표시한다.
+const EXTRA_TEAM_KPIS: readonly TeamKpi[] = STANDARD_TEAM_KPIS
+  .filter((key) => !SUMMARY_TEAM_KPIS.includes(key));
 
 export function AiReportContent({ report, print = false, density = 'DETAILED' }: {
   report: CompletedWeeklyAiReport;
@@ -78,9 +82,11 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
   const showMemberExceptions = !print
     && summary
     && projectionState.scope !== 'INDIVIDUAL_MEMBER';
+  // print는 확정 PDF 계약대로 7개를 한 행에 유지하고, 웹은 결정 코어 4개 + 상세 3개로 나눈다.
+  const coreKpiOrder = print ? [] : SUMMARY_TEAM_KPIS;
   const teamKpiOrder = print
     ? FINALIZED_PDF_TEAM_KPIS
-    : summary ? SUMMARY_TEAM_KPIS : STANDARD_TEAM_KPIS;
+    : summary ? [] : EXTRA_TEAM_KPIS;
   const teamKpis: Record<TeamKpi, ReactNode> = {
     TOTAL_TASKS: <Metric key="TOTAL_TASKS"
       label={t('전체 업무', 'Tasks')} value={String(report.metrics.totalTasks)} />,
@@ -125,6 +131,12 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
   const visibleActions = summary
     ? report.analysis.topActions.slice(0, 3)
     : report.analysis.topActions;
+  // 결정 코어의 대표 항목. 위험 대표는 스펙의 severity → frozen index 규칙을 그대로 재사용한다.
+  const topRisk = projectAiRisks(riskProjection.aiRisks, 'SUMMARY')[0];
+  const topServerRisk = riskProjection.serverRisks[0];
+  const topAction = report.analysis.topActions.find((item) => item.priority === 1)
+    ?? report.analysis.topActions[0];
+  const topDecision = report.analysis.leaderDecisions[0];
   const visibleChanges = summary
     ? report.analysis.changes.slice(0, 2)
     : report.analysis.changes;
@@ -177,11 +189,33 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
         )}
       </p>}
 
-    <section className="ai-report-executive-brief">
-      <span>{t('30초 리더 브리프', '30-second leadership brief')}</span>
-      <strong>{operationalSignal}</strong>
-      <p>{report.analysis.summary.text}</p>
-      <EvidenceDetails item={report.analysis.summary} evidence={report.evidence} />
+    <section className="ai-report-decision-core">
+      <div className="ai-report-executive-brief">
+        <span>{t('30초 리더 브리프', '30-second leadership brief')}</span>
+        <strong>{operationalSignal}</strong>
+        <p>{report.analysis.summary.text}</p>
+        <EvidenceDetails item={report.analysis.summary} evidence={report.evidence} />
+      </div>
+
+      {coreKpiOrder.length > 0 && <div className="ai-report-core-kpis"
+        aria-label={t('핵심 지표', 'Key metrics')}>
+        {coreKpiOrder.map((key) => teamKpis[key])}
+      </div>}
+
+      <div className="ai-report-core-calls">
+        <CoreCall kind="risk" label={t('가장 큰 위험', 'Top risk')}
+          text={topRisk?.item.text
+            ?? (topServerRisk ? riskSignalLabel(topServerRisk.signal.code, t) : undefined)}
+          tag={topRisk?.item.severity ?? topServerRisk?.signal.severity}
+          empty={t('확인된 위험이 없습니다.', 'No risk identified.')} />
+        <CoreCall kind="action" label={t('가장 먼저 할 일', 'First action')}
+          text={topAction?.action} tag={topAction ? `P${topAction.priority}` : undefined}
+          owner={topAction?.owner?.label}
+          empty={t('제안된 행동이 없습니다.', 'No action suggested.')} />
+        <CoreCall kind="decision" label={t('결정할 사항', 'Decision needed')}
+          text={topDecision?.question}
+          empty={t('결정할 안건이 없습니다.', 'No decision required.')} />
+      </div>
     </section>
 
     {report.comparison.available ? <section className="ai-report-comparison">
@@ -209,30 +243,6 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
           <NarrativeCard key={index} item={item} evidence={report.evidence} compact />)}
       </div>}
     </ReportSection>
-
-    <ReportSection title={summary
-      ? t('회의 후 실행 항목', 'Post-meeting actions')
-      : t('다음 주 우선 행동·목표', 'Next-week actions and goals')}
-      empty={t('제안된 행동이 없습니다.', 'No action was suggested.')}>
-      {visibleActions.length > 0 && <div className="ai-report-priority-grid">
-        {visibleActions.map((item) =>
-          <ActionCard key={item.priority} item={item} evidence={report.evidence} />)}
-      </div>}
-    </ReportSection>
-
-    <ReportSection title={summary
-      ? t('회의 결정 안건', 'Meeting decisions')
-      : t('팀장 결정 사항', 'Leader decisions')}
-      empty={t('현재 결정할 안건이 없습니다.', 'No decision is currently required.')}>
-      {report.analysis.leaderDecisions.length > 0 && <div className="ai-report-decision-grid">
-        {report.analysis.leaderDecisions.slice(0, 3).map((item, index) =>
-          <DecisionCard key={index} item={item} evidence={report.evidence} />)}
-      </div>}
-    </ReportSection>
-
-    <section className="ai-report-metrics" aria-label={t('상세 운영 지표', 'Detailed operating metrics')}>
-      {teamKpiOrder.map((key) => teamKpis[key])}
-    </section>
 
     <ReportSection title={t('서버 확인 위험 신호', 'Server-confirmed risk signals')}
       note={t(
@@ -272,6 +282,36 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
           evidence={report.evidence} preservePrintRiskMarkup={print} />)}
     </ReportSection>
 
+    {!summary && (print || groupScope) &&
+      <MemberPerformance members={report.operations.members} gradeRule={report.gradeRule}
+        memberCount={report.operations.memberCount}
+        activeMemberCount={report.operations.activeMemberCount} />}
+
+    <ReportSection title={summary
+      ? t('회의 후 실행 항목', 'Post-meeting actions')
+      : t('다음 주 우선 행동·목표', 'Next-week actions and goals')}
+      empty={t('제안된 행동이 없습니다.', 'No action was suggested.')}>
+      {visibleActions.length > 0 && <div className="ai-report-priority-grid">
+        {visibleActions.map((item) =>
+          <ActionCard key={item.priority} item={item} evidence={report.evidence} />)}
+      </div>}
+    </ReportSection>
+
+    <ReportSection title={summary
+      ? t('회의 결정 안건', 'Meeting decisions')
+      : t('팀장 결정 사항', 'Leader decisions')}
+      empty={t('현재 결정할 안건이 없습니다.', 'No decision is currently required.')}>
+      {report.analysis.leaderDecisions.length > 0 && <div className="ai-report-decision-grid">
+        {report.analysis.leaderDecisions.slice(0, 3).map((item, index) =>
+          <DecisionCard key={index} item={item} evidence={report.evidence} />)}
+      </div>}
+    </ReportSection>
+
+    {teamKpiOrder.length > 0 && <section className="ai-report-metrics"
+      aria-label={t('상세 운영 지표', 'Detailed operating metrics')}>
+      {teamKpiOrder.map((key) => teamKpis[key])}
+    </section>}
+
     {detailed && <ReportSection title={t('일별 업무 흐름', 'Daily work flow')}
       empty={t('표시할 일별 활동이 없습니다.', 'No daily activity is available.')}>
       {report.metrics.daily.length > 0 && <div className="ai-report-daily-flow">
@@ -288,30 +328,6 @@ export function AiReportContent({ report, print = false, density = 'DETAILED' }:
 
     {!print && individualScope && selectedMember &&
       <IndividualMemberDetail item={selectedMember} density={density} />}
-
-    {detailed && (print || groupScope) &&
-      <ReportSection title={t('팀원 업무 흐름', 'Team work flow')}
-      empty={t('활성 팀원이 없습니다.', 'No active members are available.')}>
-      {report.operations.members.length > 0 && <div className="ai-report-member-table">
-        <div className="report-member-row report-member-head">
-          <span>{t('팀원', 'Member')}</span><span>{t('담당', 'Assigned')}</span>
-          <span>{t('진행', 'Active')}</span><span>{t('완료', 'Done')}</span>
-          <span>{t('지연', 'Overdue')}</span>
-        </div>
-        {report.operations.members.map((item) => <div className="report-member-row"
-          key={item.member.ref}>
-          <strong>{item.member.label}</strong><span>{item.assigned}</span>
-          <span>{item.active}</span><span>{item.completed}</span>
-          <span className={item.delayed > 0 ? 'negative' : ''}>{item.delayed}</span>
-        </div>)}
-        <p className="ai-report-table-note">
-          {t(
-            `활성 팀원 ${report.operations.memberCount}명 중 이번 주 업무 활동 ${report.operations.activeMemberCount}명`,
-            `${report.operations.activeMemberCount} of ${report.operations.memberCount} active members had assigned work`,
-          )}
-        </p>
-      </div>}
-    </ReportSection>}
 
     {detailed && (print || groupScope) &&
       <ReportSection title={t('이번 주 핵심 업무', 'Key work this week')}
@@ -412,6 +428,73 @@ function changeLabel(value: string, t: (ko: string, en: string) => string) {
     COMPLETED: t('완료 전환', 'Completed'), RESUMED: t('재개', 'Resumed'),
     REOPENED: t('다시 열림', 'Reopened'),
   } as Record<string, string>)[value] ?? value;
+}
+
+function CoreCall({ kind, label, text, tag, owner, empty }: {
+  kind: 'risk' | 'action' | 'decision';
+  label: string;
+  text?: string;
+  tag?: string;
+  owner?: string;
+  empty: string;
+}) {
+  return <div className={`ai-report-core-call ${kind}`}>
+    <span className="ai-report-core-call-label">{label}</span>
+    {text
+      ? <>
+        {tag && <b className={`ai-report-core-call-tag ${kind}`}>{tag}</b>}
+        <p>{text}</p>
+        {owner && <small>{owner}</small>}
+      </>
+      : <p className="ai-report-core-call-empty">{empty}</p>}
+  </div>;
+}
+
+// 등급·점수·순위는 서버가 동결 지표에서 계산해 내려준 값만 그대로 표시한다.
+// 근거가 없어 grade가 비어 있으면 낮은 등급이 아니라 평가 대상 아님이다.
+function MemberPerformance({ members, gradeRule, memberCount, activeMemberCount }: {
+  members: readonly MemberWorkView[];
+  gradeRule?: string;
+  memberCount: number;
+  activeMemberCount: number;
+}) {
+  const { t } = useLanguage();
+  return <ReportSection title={t('팀원 성과와 업무 부담', 'Member performance and workload')}
+    note={t(
+      '등급·점수·순위는 서버가 동결된 지표로 계산합니다. AI는 등급을 계산하거나 바꾸지 않습니다.',
+      'Grade, score, and rank are computed by the server from frozen metrics. AI neither computes nor changes them.',
+    )}
+    empty={t('활성 팀원이 없습니다.', 'No active members are available.')}>
+    {members.length > 0 && <div className="ai-report-member-table performance">
+      <div className="report-member-row performance report-member-head">
+        <span>{t('팀원', 'Member')}</span><span>{t('등급', 'Grade')}</span>
+        <span>{t('점수', 'Score')}</span><span>{t('순위', 'Rank')}</span>
+        <span>{t('담당', 'Assigned')}</span><span>{t('진행', 'Active')}</span>
+        <span>{t('완료', 'Done')}</span><span>{t('지연', 'Overdue')}</span>
+      </div>
+      {members.map((item) => {
+        const rated = Boolean(item.grade);
+        return <div className="report-member-row performance" key={item.member.ref}
+          data-member-ref={item.member.ref}>
+          <strong>{item.member.label}</strong>
+          {rated
+            ? <span className={`member-grade ${item.grade?.toLowerCase()}`}>{item.grade}</span>
+            : <span className="member-grade not-rated">{t('평가 대상 아님', 'Not rated')}</span>}
+          <span>{rated && item.score !== undefined ? item.score : '-'}</span>
+          <span>{rated && item.rank ? item.rank : '-'}</span>
+          <span>{item.assigned}</span><span>{item.active}</span><span>{item.completed}</span>
+          <span className={item.delayed > 0 ? 'negative' : ''}>{item.delayed}</span>
+        </div>;
+      })}
+      <p className="ai-report-table-note">
+        {t(
+          `활성 팀원 ${memberCount}명 중 이번 주 업무 활동 ${activeMemberCount}명`,
+          `${activeMemberCount} of ${memberCount} active members had assigned work`,
+        )}
+      </p>
+      {gradeRule && <p className="ai-report-table-note">{gradeRule}</p>}
+    </div>}
+  </ReportSection>;
 }
 
 function ReportSection({ title, children, empty, note }: {

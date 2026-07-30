@@ -1,4 +1,4 @@
-import { request, requestFile } from './client';
+import { request, requestBlob } from './client';
 
 export type GroupResponse = {
   id: number;
@@ -93,10 +93,10 @@ export const groupApi = {
       to: string;
       language: 'ko' | 'en';
     },
-  ) => requestFile(`/groups/${groupId}/reports/basic.pdf`, {
+  ) => requestBlob(`/groups/${groupId}/reports/basic.pdf`, `toesa-report-${input.language}.pdf`, {
     method: 'POST',
     body: JSON.stringify(input),
-  }, true),
+  }),
   get: (groupId: number) => request<GroupResponse>(`/groups/${groupId}`, {}, true),
   update: (groupId: number, body: UpdateGroupRequest) => request<GroupResponse>(`/groups/${groupId}`, {
     method: 'PATCH', body: JSON.stringify(body),

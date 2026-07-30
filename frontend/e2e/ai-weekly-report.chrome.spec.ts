@@ -166,7 +166,7 @@ test('기본 리포트와 AI 리포트가 범위·기간 선택을 공유한다'
   await expect(page.getByRole('button', { name: 'AI 리포트' })).toBeEnabled();
 });
 
-test('기본 리포트의 AI 버튼에서 표준 리포트를 열어 편집·재생성·확정한다', async ({
+test('표준 리포트 reader에서 편집·재생성·확정한다', async ({
   page,
   context,
 }) => {
@@ -185,9 +185,10 @@ test('기본 리포트의 AI 버튼에서 표준 리포트를 열어 편집·재
   await expect(page.getByRole('combobox', { name: '기간' })).toHaveValue('WEEKLY');
   await expect(page.locator('.ai-report-document')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'AI 리포트' }).click();
-  await expect(page).toHaveURL('/groups/1/reports/ai-weekly/1');
-  await page.reload();
+  // 대시보드의 'AI 리포트' 행동은 더 이상 이 페이지를 이동시키지 않고 별도 창을 연다.
+  // 이 테스트의 대상은 reader의 편집·재생성·확정이므로 reader를 직접 연다.
+  await page.goto('/groups/1/reports/ai-weekly/1');
+  await page.waitForLoadState('networkidle');
 
   await expect(page.getByRole('button', { name: '표준' }))
     .toHaveAttribute('title', '팀장이 과정·결과·진행 상황과 다음 행동을 한눈에 봅니다.');
