@@ -1,0 +1,26 @@
+# 저장소에는 항상 LF로 저장한다. 체크아웃 시 줄바꿈은 core.autocrlf 설정을 따른다.
+* text=auto
+
+# 실행 환경이 줄바꿈에 민감한 파일은 플랫폼과 무관하게 고정한다.
+*.sh text eol=lf
+mvnw text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 텍스트로 오인하면 손상되는 파일은 변환하지 않는다.
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
+# 자동 생성 파일은 diff 검토 대상에서 접어 둔다.
+frontend/package-lock.json linguist-generated=true -diff

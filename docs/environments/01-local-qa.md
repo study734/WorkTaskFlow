@@ -6,7 +6,7 @@
 
 ## 환경
 
-- Java 21, Node.js 20 이상, MySQL 8.x
+- Java 21(`java -version`과 `JAVA_HOME`이 모두 21이어야 한다), Node.js 20 이상(`.nvmrc` 기준), MySQL 8.x
 - 프런트 `http://localhost:5174`
 - 백엔드 `http://localhost:8081`
 - 로컬 전용 `teamProject`와 테스트 전용 `teamProject_test`
@@ -30,9 +30,9 @@
 ## 필수 QA
 
 - `frontend`: `npm ci`, `npm run build`
-- `backend`: `./mvnw test`
-- 필요 시 `./scripts/test-mysql.sh`로 MySQL 마이그레이션 검증
-- `./scripts/seed-demo-data.sh` 후 김팀장 데모 조회
+- `backend`: `./mvnw test` (Windows PowerShell은 `.\mvnw.cmd test`)
+- 필요 시 `backend/scripts/test-mysql.sh`로 MySQL 마이그레이션 검증
+- `backend/scripts/seed-demo-data.sh` 후 김팀장 데모 조회
 - 권한 없는 그룹·업무·이미지 요청이 401/403/404로 거부되는지 확인
 - 가입 필수 동의 누락이 거부되고 선택 동의가 각각 저장되는지 확인
 - 결제 로그에 시크릿키, billing key, 카드정보가 남지 않는지 확인

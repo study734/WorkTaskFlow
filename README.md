@@ -63,6 +63,14 @@ src
 
 필요 환경: Java 21, Node.js 20 이상, 로컬 MySQL 8.x (Maven은 Wrapper가 자동으로 준비)
 
+팀원 간 결과를 같게 유지하기 위해 아래를 먼저 맞춥니다.
+
+- Java: `java -version`과 `JAVA_HOME`이 모두 21이어야 합니다. 기본 JDK가 17인 PC에서는 Wrapper가 release 21 컴파일에 실패하므로 실행 전 `JAVA_HOME`을 JDK 21로 지정합니다.
+- Node: 저장소 루트의 `.nvmrc`가 기준이며 `nvm use`로 맞춥니다. `frontend/package.json`의 `engines`가 20 미만을 걸러냅니다.
+- 줄바꿈·들여쓰기: `.gitattributes`와 `.editorconfig`가 기준입니다. 편집기에 EditorConfig 플러그인을 활성화합니다.
+- 쉘: 아래 예시는 bash 기준입니다. Windows PowerShell에서는 `./mvnw`를 `.\mvnw.cmd`로 바꾸고, `.sh` 스크립트는 Git Bash에서 실행합니다.
+- DB: 로컬에 설치한 MySQL 8.x가 기준입니다. `docker-compose.yml`은 MySQL을 직접 설치하지 않을 때 쓰는 선택지이며, 컨테이너를 쓰더라도 접속 정보는 아래와 같은 `localhost:3306/teamProject`로 맞춥니다.
+
 ```bash
 cp .env.example .env
 # .env의 SPRING_DATASOURCE_PASSWORD와 JWT_SECRET을 로컬 값으로 변경
