@@ -35,10 +35,16 @@ public record ReportPeriod(
         return start.until(end).getDays() == other.start().until(other.end()).getDays();
     }
 
+    /**
+     * 달 기준(1·8·15·22·29일)과 ISO 월요일 시작을 모두 받는다. 프론트가 아직 월요일을 보내는
+     * 화면이 있어 한쪽만 받으면 생성이 전부 거부된다. 월요일 주는 항상 7일이므로 아래 계산이 그대로
+     * 성립하고, 프론트가 달 기준으로 옮겨가면 이 분기만 좁히면 된다.
+     */
     public static ReportPeriod completedWeek(LocalDate weekStart, String timezone, Clock clock) {
-        if (weekStart == null || !isWeekStart(weekStart)) {
+        if (weekStart == null
+                || !(isWeekStart(weekStart) || weekStart.getDayOfWeek() == DayOfWeek.MONDAY)) {
             throw new ApplicationException("AI_REPORT_WEEK_INVALID", HttpStatus.BAD_REQUEST,
-                    "주간 시작일은 매월 1·8·15·22·29일이어야 합니다.");
+                    "주간 시작일은 매월 1·8·15·22·29일 또는 월요일이어야 합니다.");
         }
         ZoneId zone = ZoneId.of(timezone);
         ReportPeriod period = of(weekStart, zone);
@@ -59,8 +65,11 @@ public record ReportPeriod(
     }
 
     private static ReportPeriod of(LocalDate weekStart, ZoneId zone) {
-        LocalDate end = weekStart.withDayOfMonth(
-                Math.min(weekStart.getDayOfMonth() + 6, weekStart.lengthOfMonth()));
+        // 달 기준 주차만 월말에서 자른다. 월요일 시작 주를 자르면 7일이 5일로 줄어 비교가 깨진다.
+        LocalDate end = isWeekStart(weekStart)
+                ? weekStart.withDayOfMonth(
+                        Math.min(weekStart.getDayOfMonth() + 6, weekStart.lengthOfMonth()))
+                : weekStart.plusDays(6);
         return new ReportPeriod(weekStart, end, zone,
                 weekStart.atStartOfDay(zone).toInstant(),
                 end.plusDays(1).atStartOfDay(zone).toInstant());

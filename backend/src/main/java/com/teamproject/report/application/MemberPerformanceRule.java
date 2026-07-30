@@ -23,10 +23,7 @@ public final class MemberPerformanceRule {
 
     private static final int COMPLETION_WEIGHT = 45;
     private static final int ON_TIME_WEIGHT = 30;
-    private static final int CHECKLIST_WEIGHT = 25;
-    private static final int DELAY_PENALTY_CAP = 20;
-    private static final int ON_HOLD_PENALTY_CAP = 10;
-    private static final int ON_HOLD_PENALTY_STEP = 5;
+    private static final int CHECKLIST_WEIGHT = 25;
 
     private MemberPerformanceRule() {}
 
@@ -64,11 +61,10 @@ public final class MemberPerformanceRule {
             weight += CHECKLIST_WEIGHT;
         }
         if (weight == 0) return null;
-        long base = rounded(weighted, weight);
-        long delayShare = rounded(100L * member.delayed(), member.assigned());
-        long penalty = Math.min(DELAY_PENALTY_CAP, delayShare / 2)
-                + Math.min(ON_HOLD_PENALTY_CAP, ON_HOLD_PENALTY_STEP * member.onHold());
-        return (int) Math.clamp(base - penalty, 0, 100);
+        // 감점을 따로 두지 않는다. 지연·보류는 이미 세 비율에 반영돼 있다 — 지연된 업무는 완료율을
+        // 낮추고, 늦게 끝난 업무는 기한 준수율을 낮추고, 멈춘 업무는 체크리스트 완료율을 낮춘다.
+        // 그 위에 감점을 얹으면 같은 사실을 두세 번 세어 팀 전체가 D·E로 몰린다.
+        return (int) Math.clamp(rounded(weighted, weight), 0, 100);
     }
 
     public static Integer checklistRate(MemberMetric member) {
@@ -121,14 +117,14 @@ public final class MemberPerformanceRule {
     public static String describe(String language) {
         if ("en".equals(language)) {
             return "Score weights completion rate 45, on-time rate 30 and checklist rate 25 over "
-                    + "the metrics actually available, then subtracts up to 20 for the share of "
-                    + "overdue work and up to 10 for on-hold work. Grades: A from 85, B from 70, "
-                    + "C from 55, D from 40, E below 40. A member with no assigned work is "
-                    + "NOT_RATED and is excluded from ranking.";
+                    + "the metrics actually available. Overdue and on-hold work is already "
+                    + "reflected in those rates, so no separate penalty applies. Grades: A from "
+                    + "85, B from 70, C from 55, D from 40, E below 40. A member with no assigned "
+                    + "work is NOT_RATED and is excluded from ranking.";
         }
         return "점수는 실제로 산출된 지표에 대해 완료율 45, 기한 준수율 30, 체크리스트 완료율 25의 "
-                + "가중치를 적용한 뒤, 지연 업무 비중에 최대 20점, 보류 업무에 최대 10점을 감점해 "
-                + "계산합니다. 등급은 85점 이상 A, 70점 이상 B, 55점 이상 C, 40점 이상 D, "
+                + "가중치를 적용해 계산합니다. 지연·보류 업무는 이미 이 비율들에 반영되므로 별도 "
+                + "감점은 없습니다. 등급은 85점 이상 A, 70점 이상 B, 55점 이상 C, 40점 이상 D, "
                 + "40점 미만 E입니다. 배정된 업무가 없는 팀원은 NOT_RATED이며 순위에서 제외합니다.";
     }
 }

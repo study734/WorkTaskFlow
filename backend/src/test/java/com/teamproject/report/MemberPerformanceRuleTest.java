@@ -42,13 +42,23 @@ class MemberPerformanceRuleTest {
         assertThat(rating.grade()).isEqualTo(MemberPerformanceRule.NOT_RATED);
     }
 
+    // 지연·보류는 완료율·기한 준수율·체크리스트 완료율에 이미 반영된다. 그 위에 감점을 얹으면
+    // 같은 사실을 두세 번 세어 팀 전체가 D·E로 몰린다.
     @Test
-    void capsDelayAndOnHoldPenalties() {
-        // 완료율 100, 전부 지연, 보류 5건 → 감점은 20 + 10으로 상한에서 멈춘다.
+    void doesNotPenalizeDelayOrOnHoldTwice() {
         Rating rating = rate(new MemberMetric("MEMBER-01", 4, 4, 4, 4, null, 5, 0, 0, 100));
 
-        assertThat(rating.score()).isEqualTo(70);
-        assertThat(rating.grade()).isEqualTo("B");
+        assertThat(rating.score()).isEqualTo(100);
+        assertThat(rating.grade()).isEqualTo("A");
+    }
+
+    // 실제로 지연이 있으면 완료율·기한 준수율이 스스로 내려가 등급이 떨어진다.
+    @Test
+    void reflectsDelayThroughTheRatesThemselves() {
+        Rating rating = rate(new MemberMetric("MEMBER-01", 4, 2, 2, 2, 50, 0, 4, 2, 50));
+
+        assertThat(rating.score()).isEqualTo(50);
+        assertThat(rating.grade()).isEqualTo("D");
     }
 
     @Test
