@@ -20,11 +20,20 @@ public class JwtService {
         this.accessSeconds = accessSeconds;
     }
     public String create(User user) {
+        return create(user, null);
+    }
+    public String create(User user, String sessionId) {
+        return create(user, sessionId, false);
+    }
+    public String create(User user, String sessionId, boolean mfaVerified) {
         Instant now = Instant.now();
-        return Jwts.builder().subject(user.getId().toString())
+        var builder = Jwts.builder().subject(user.getId().toString())
                 .claim("username", user.getUsername()).claim("role", user.getSystemRole().name())
-                .issuedAt(Date.from(now)).expiration(Date.from(now.plusSeconds(accessSeconds)))
-                .signWith(key).compact();
+                .claim("authVersion", user.getAuthVersion())
+                .claim("mfaVerified", mfaVerified)
+                .issuedAt(Date.from(now)).expiration(Date.from(now.plusSeconds(accessSeconds)));
+        if (sessionId != null) builder.claim("sessionId", sessionId);
+        return builder.signWith(key).compact();
     }
     public Claims parse(String token) { return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload(); }
     public long accessSeconds() { return accessSeconds; }

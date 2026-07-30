@@ -1,18 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { authApi } from '../api/authApi';
-import { accessToken, errorMessage, sessionMode } from '../api/client';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { BrandMark } from './BrandMark';
 import { useLanguage } from './LanguageContext';
 import { isPwaInstallAvailable, isRunningStandalone, promptPwaInstall } from './pwa';
 
 export function LandingPage() {
   const { t, language, setLanguage } = useLanguage();
-  const navigate = useNavigate();
-  const [demoPending, setDemoPending] = useState(false);
-  const [demoError, setDemoError] = useState('');
   const [installOpen, setInstallOpen] = useState(false);
   const [installable, setInstallable] = useState(isPwaInstallAvailable());
+  const installDialogRef = useRef<HTMLElement>(null);
+  const installTitleId = useId();
   const installed = isRunningStandalone();
 
   useEffect(() => {
@@ -24,21 +21,35 @@ export function LandingPage() {
       window.removeEventListener('pwa-installed', sync);
     };
   }, []);
-
-  async function startDemo() {
-    setDemoPending(true);
-    setDemoError('');
-    try {
-      const token = await authApi.demo();
-      accessToken.set(token.accessToken);
-      sessionMode.setDemo();
-      navigate('/app');
-    } catch (error) {
-      setDemoError(errorMessage(error));
-    } finally {
-      setDemoPending(false);
-    }
-  }
+  useEffect(() => {
+    if (!installOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const overflow = document.body.style.overflow;
+    const focusableSelector = 'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); setInstallOpen(false); return;
+      }
+      if (event.key !== 'Tab' || !installDialogRef.current) return;
+      const focusable = Array.from(installDialogRef.current.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) return;
+      const first = focusable[0]; const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+    const frame = window.requestAnimationFrame(() => installDialogRef.current?.querySelector<HTMLElement>('button')?.focus());
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.body.style.overflow = overflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [installOpen]);
 
   async function install() {
     if (installable) {
@@ -51,7 +62,7 @@ export function LandingPage() {
 
   return <main className="landing-page">
     <header className="landing-nav">
-      <Link to="/" className="landing-brand"><BrandMark /><strong>ToTaskFlow</strong></Link>
+      <Link to="/" className="landing-brand"><BrandMark /><strong>{t('퇴사', 'toesa')}</strong></Link>
       <nav aria-label={t('랜딩 페이지 메뉴', 'Landing navigation')}>
         <Link to="/product">{t('제품', 'Product')}</Link>
         <Link to="/b2b">{t('B2B 솔루션', 'B2B solutions')}</Link>
@@ -64,21 +75,21 @@ export function LandingPage() {
     </header>
 
     <section className="landing-hero">
-      <div className="landing-eyebrow"><span />{t('팀의 일을 한 흐름으로', 'One flow for your team')}</div>
-      <h1>{t('흩어진 업무와 일정을', 'Bring tasks and schedules')}<br /><em>{t('하나의 작업 공간으로.', 'into one calm workspace.')}</em></h1>
-      <p>{t('요청, 승인, 담당자 선택, 진행 상황과 캘린더까지. 팀이 지금 무엇을 해야 하는지 누구나 같은 화면에서 확인하세요.', 'Requests, approvals, ownership, progress, and calendar—give everyone one clear view of what comes next.')}</p>
+      <div className="landing-eyebrow"><span />{t('퇴근을 사수하는 업무관리', 'Protect your time after work')}</div>
+      <h1>{t('보고 때문에 남아 있다면,', 'Leave the busywork behind.')}<br /><em>{t('이제 퇴사하세요.', 'Keep the work that matters.')}</em></h1>
+      <p>{t('퇴사를 권하는 앱이 아닙니다. 업무는 남기고, 야근은 남기지 않도록 요청부터 완료·리포트까지 한 흐름으로 정리하는 팀 작업 공간입니다.', 'Not an app for quitting—a workspace for finishing. Keep requests, ownership, progress, and reports in one clear flow so work does not follow you home.')}</p>
       <div className="landing-hero-actions">
-        <Link className="landing-primary" to="/login">{t('무료로 시작하기', 'Start for free')} <span>→</span></Link>
-        <button className="landing-demo" type="button" disabled={demoPending} onClick={startDemo}>{demoPending ? t('데모 준비 중...', 'Opening demo...') : t('김팀장의 데모 둘러보기', 'Explore the manager demo')} <span>↗</span></button>
+        <Link className="landing-primary" to="/login">{t('퇴사 시작하기', 'Start with toesa')} <span>→</span></Link>
+        <Link className="landing-demo" to="/demo">{t('퇴사 미리 보기', 'Preview toesa')} <span>↗</span></Link>
       </div>
-      <small>{t('데모는 공용 읽기 전용 환경입니다. 실제 개인정보를 입력하지 마세요.', 'The demo is shared and read-only. Do not enter real personal information.')}</small>
-      {demoError && <p className="landing-error">{demoError}</p>}
+      <button className="landing-pwa-hero" type="button" onClick={() => setInstallOpen(true)} disabled={installed}><span aria-hidden="true">↓</span>{installed ? t('퇴사 앱으로 실행 중', 'Running as the toesa app') : t('앱스토어 없이, 이 기기에 퇴사 추가', 'Add toesa to this device—no app store')}</button>
+      <small>{t('데모는 실제 시스템과 분리된 읽기 전용 화면입니다.', 'The demo is a read-only experience isolated from the live system.')}</small>
     </section>
 
     <section className="landing-product" aria-label={t('제품 화면 미리보기', 'Product preview')}>
-      <div className="landing-window-bar"><i /><i /><i /><span>worktaskflow.app/app</span></div>
+      <div className="landing-window-bar"><i /><i /><i /><span>totaskflow.com/app</span></div>
       <div className="landing-product-body">
-        <aside><div className="mock-brand"><BrandMark />ToTaskFlow</div><span className="active">⌂ {t('홈', 'Home')}</span><span>♧ {t('그룹', 'Groups')}</span><span>□ {t('캘린더', 'Calendar')}</span><span>♢ {t('알림', 'Alerts')}</span><b>{t('로컬 알파 시연팀', 'Alpha demo team')}</b></aside>
+        <aside><div className="mock-brand"><BrandMark />{t('퇴사', 'toesa')}</div><span className="active">⌂ {t('홈', 'Home')}</span><span>♧ {t('그룹', 'Groups')}</span><span>□ {t('캘린더', 'Calendar')}</span><span>♢ {t('알림', 'Alerts')}</span><b>{t('로컬 알파 시연팀', 'Alpha demo team')}</b></aside>
         <div className="mock-dashboard"><header><div><small>TODAY</small><h2>{t('김팀장님, 오늘도 반가워요!', 'Welcome back, Team Lead Kim!')}</h2><p>{t('중요한 일부터 하나씩 시작해 볼까요?', 'Start with what matters most today.')}</p></div><span className="mock-avatar">김</span></header>
           <div className="mock-metrics"><article><small>{t('진행 중', 'In progress')}</small><strong>8</strong><span>↗ 12%</span></article><article><small>{t('완료', 'Completed')}</small><strong>24</strong><span>75%</span></article><article><small>{t('마감 임박', 'Due soon')}</small><strong>3</strong><span className="warning">{t('확인 필요', 'Review')}</span></article></div>
           <div className="mock-columns"><article><h3>{t('내 우선 업무', 'Priority tasks')}</h3><MockTask color="violet" title={t('모바일 화면 최종 점검', 'Final mobile review')} meta={t('오늘 18:00 마감', 'Due today 18:00')} /><MockTask color="blue" title={t('발표 자료 초안 작성', 'Draft presentation')} meta={t('내일 마감', 'Due tomorrow')} /><MockTask color="orange" title={t('외부 피드백 반영', 'Apply external feedback')} meta={t('보류 중', 'On hold')} /></article><article><h3>{t('다가오는 일정', 'Upcoming')}</h3><div className="mock-event"><b>26</b><span><strong>{t('주간 진행 공유', 'Weekly sync')}</strong><small>10:00 · {t('회의실 A', 'Room A')}</small></span></div><div className="mock-event"><b>28</b><span><strong>{t('발표 리허설', 'Presentation rehearsal')}</strong><small>14:00 · Online</small></span></div></article></div>
@@ -96,30 +107,15 @@ export function LandingPage() {
       </div>
     </section>
 
-    <section className="landing-ai-sample" aria-labelledby="ai-sample-title">
-      <div className="landing-ai-sample-heading">
-        <span className="landing-section-label">{t('유료 플랜 미리보기 · 예시 데이터', 'Paid plan preview · Sample data')}</span>
-        <h2 id="ai-sample-title">{t('숫자를 나열하는 리포트에서, 다음 행동이 보이는 리포트로.', 'From a list of numbers to a report with clear next actions.')}</h2>
-        <p>{t('아래 내용은 고정된 예시이며 공개 OpenAI API를 호출하지 않습니다.', 'This is a fixed example and does not call the OpenAI API.')}</p>
-      </div>
-      <div className="landing-ai-compare">
-        <article>
-          <small>{t('기본 리포트 · AI 미사용', 'Basic report · No AI')}</small>
-          <h3>{t('주간 업무 현황', 'Weekly task metrics')}</h3>
-          <dl><div><dt>{t('업무', 'Tasks')}</dt><dd>18</dd></div><div><dt>{t('완료율', 'Completion')}</dt><dd>72%</dd></div><div><dt>{t('지연', 'Overdue')}</dt><dd>3</dd></div></dl>
-          <p>{t('기간별 확정 통계와 업무 목록을 PDF로 저장합니다.', 'Save finalized period metrics and task lists as PDF.')}</p>
-        </article>
-        <article className="paid-preview">
-          <small>{t('AI 주간 리포트 · 유료', 'AI weekly report · Paid')}</small>
-          <h3>{t('완료 흐름은 안정적이지만 지연 업무 확인이 필요합니다.', 'Completion is steady, but overdue work needs attention.')}</h3>
-          <ul>
-            <li>{t('핵심 흐름: 완료율과 기한 준수율을 함께 설명', 'Highlight: explains completion and on-time trends together')}</li>
-            <li>{t('위험: 서버가 판정한 지연 근거만 인용', 'Risk: cites only server-determined overdue evidence')}</li>
-            <li>{t('다음 행동: 다음 주 우선 확인 항목 제안', 'Next action: suggests what to check first next week')}</li>
-          </ul>
-          <p>{t('업무 제목·댓글·닉네임 없이 비식별 확정 통계만 사용합니다.', 'Uses only de-identified finalized metrics, without titles, comments, or nicknames.')}</p>
-        </article>
-      </div>
+    <section className="landing-name-story" aria-label={t('퇴사 브랜드 이야기', 'The toesa name')}>
+      <span>toesa / 퇴사</span>
+      <h2>{t('퇴사를 권하는 앱이 아닙니다.', 'It is not about quitting.')}<br /><em>{t('퇴근을 사수하는 앱입니다.', 'It is about finishing well.')}</em></h2>
+      <p>{t('할 일을 더 만드는 대신, 이미 한 일이 보고서가 되게. 팀의 업무 흐름은 남기고 불필요한 야근은 남기지 않습니다.', 'Instead of creating more busywork, turn the work already done into the report. Keep the team context—not the unnecessary overtime.')}</p>
+    </section>
+
+    <section className="landing-proof" aria-label={t('퇴사 핵심 가치', 'toesa key value')}>
+      <header><span className="landing-section-label">{t('실제 업무가 움직이는 구조', 'Built for work that moves')}</span><h2>{t('기록만 쌓는 도구가 아니라, 다음 행동을 분명하게.', 'More than stored records—make the next action clear.')}</h2><p>{t('누가 요청했고, 누가 승인하며, 누가 맡아야 하는지 한 흐름 안에서 확인합니다. 일정과 대화도 같은 업무에 연결됩니다.', 'See who requested, who approves, and who owns the next step. Schedules and conversations stay connected to the same work.')}</p></header>
+      <div><article><strong>{t('요청과 승인', 'Request & approve')}</strong><p>{t('팀원의 제안을 팀장이 확인하고 반려 사유까지 기록합니다.', 'Leads review proposals and preserve rejection context.')}</p></article><article><strong>{t('직접 담당 선택', 'Claim ownership')}</strong><p>{t('승인된 업무를 진행 가능한 팀원이 직접 맡아 병목을 줄입니다.', 'Available teammates claim approved work and reduce bottlenecks.')}</p></article><article><strong>{t('업무 중심 협업', 'Work-centered context')}</strong><p>{t('체크리스트, 댓글, 멘션과 변경 이력을 업무별로 모읍니다.', 'Keep checklists, comments, mentions, and history per task.')}</p></article><article><strong>{t('일정과 리포트', 'Schedule & reports')}</strong><p>{t('마감과 팀 일정을 함께 보고 기간별 PDF 리포트를 만듭니다.', 'View deadlines with team events and create period-based PDF reports.')}</p></article></div>
     </section>
 
     <section id="workflow" className="landing-workflow">
@@ -127,10 +123,15 @@ export function LandingPage() {
       <ol><li><b>1</b><span><strong>{t('그룹 만들기', 'Create a group')}</strong><small>{t('멤버를 초대하고 역할을 정합니다.', 'Invite members and set roles.')}</small></span></li><li><b>2</b><span><strong>{t('업무 흐름 연결', 'Connect the workflow')}</strong><small>{t('요청·승인·담당·완료를 기록합니다.', 'Track request, approval, ownership, and completion.')}</small></span></li><li><b>3</b><span><strong>{t('한눈에 확인', 'Stay aligned')}</strong><small>{t('대시보드와 캘린더로 지금을 봅니다.', 'See the present in dashboards and calendars.')}</small></span></li></ol>
     </section>
 
-    <section className="landing-final-cta"><BrandMark /><h2>{t('오늘의 업무를 더 선명하게.', 'Make today’s work clearer.')}</h2><p>{t('팀의 다음 행동이 보이는 작업 공간을 지금 시작하세요.', 'Start a workspace where the next action is always visible.')}</p><div><Link to="/login">{t('무료로 시작하기', 'Start for free')} →</Link><button type="button" onClick={startDemo}>{t('데모 보기', 'View demo')}</button></div></section>
-    <footer><Link to="/" className="landing-brand"><BrandMark /><strong>ToTaskFlow</strong></Link><nav><Link to="/privacy">{t('개인정보 처리방침', 'Privacy')}</Link><Link to="/terms">{t('이용약관', 'Terms')}</Link><Link to="/site-map">{t('사이트맵', 'Site map')}</Link></nav><small>© 2026 ToTaskFlow</small></footer>
+    <section className="landing-confidence">
+      <div><span className="landing-section-label">{t('안심하고 시험하기', 'Try it with confidence')}</span><h2>{t('브라우저에서 시작하고, 팀에 맞으면 그대로 이어가세요.', 'Start in the browser and keep going when it fits your team.')}</h2></div>
+      <div className="landing-confidence-grid"><article><b>01</b><strong>{t('읽기 전용 데모', 'Read-only demo')}</strong><p>{t('김팀장과 팀원 더미 데이터로 실제 화면과 흐름을 먼저 확인합니다.', 'Explore real screens and flows with manager and teammate sample data.')}</p></article><article><b>02</b><strong>{t('설치 선택권', 'Optional installation')}</strong><p>{t('다운로드 없이 사용하고, 자주 쓰는 기기에만 PWA로 추가합니다.', 'Use it without a download, then add the PWA only on devices you choose.')}</p></article><article><b>03</b><strong>{t('데이터 분리 원칙', 'Data boundaries')}</strong><p>{t('데모 데이터는 브라우저 샘플로만 제공되어 실제 계정·업무·결제 데이터와 섞이지 않습니다.', 'Demo data stays in the browser sample and never mixes with real accounts, work, or payments.')}</p></article></div>
+    </section>
 
-    {installOpen && <div className="landing-install-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setInstallOpen(false)}><section role="dialog" aria-modal="true" aria-labelledby="install-title"><button className="landing-install-close" type="button" onClick={() => setInstallOpen(false)} aria-label={t('닫기', 'Close')}>×</button><span className="landing-install-icon"><BrandMark /></span><h2 id="install-title">{t('ToTaskFlow를 앱으로 만들까요?', 'Make ToTaskFlow an app?')}</h2><p>{t('앱스토어 다운로드 없이 홈 화면과 앱 목록에 아이콘을 추가합니다.', 'Add an icon to your home screen and app list without an app store download.')}</p><ul><li>{t('독립된 앱 화면으로 빠르게 실행됩니다.', 'Opens quickly in its own app window.')}</li><li>{t('기본 화면 일부를 저장하지만, 최신 조회와 변경에는 인터넷이 필요합니다.', 'Keeps part of the shell offline; current data and changes still need internet.')}</li><li>{t('알림·카메라 같은 권한은 자동으로 허용되지 않습니다.', 'Notification and camera permissions are not granted automatically.')}</li><li>{t('기기 설정에서 언제든 제거할 수 있습니다.', 'You can remove it anytime in device settings.')}</li></ul>{installable ? <div className="landing-install-actions"><button type="button" onClick={() => setInstallOpen(false)}>{t('나중에', 'Not now')}</button><button className="confirm" type="button" onClick={install}>{t('APP 만들기', 'Install app')}</button></div> : <div className="landing-install-manual"><strong>{t('브라우저 메뉴에서 직접 추가해 주세요.', 'Add it from your browser menu.')}</strong><p>{t('iPhone/iPad: Safari 공유 버튼 → 홈 화면에 추가\nAndroid/PC: 브라우저 메뉴 → 앱 설치 또는 홈 화면에 추가', 'iPhone/iPad: Safari Share → Add to Home Screen\nAndroid/Desktop: Browser menu → Install app or Add to Home Screen')}</p></div>}</section></div>}
+    <section className="landing-final-cta"><BrandMark /><h2>{t('오늘도 보고서 때문에 남아 있나요?', 'Still staying late for the report?')}</h2><p>{t('업무는 남기고, 야근은 남기지 마세요. 이제 퇴사하세요.', 'Keep the work, not the overtime. Start finishing with toesa.')}</p><div><Link to="/login">{t('퇴사 시작하기', 'Start with toesa')} →</Link><Link to="/demo">{t('데모 보기', 'View demo')}</Link></div></section>
+    <footer><Link to="/" className="landing-brand"><BrandMark /><strong>{t('퇴사', 'toesa')}</strong></Link><nav><Link to="/privacy">{t('개인정보 처리방침', 'Privacy')}</Link><Link to="/terms">{t('이용약관', 'Terms')}</Link><Link to="/paid-terms">{t('유료서비스 약관', 'Paid terms')}</Link><Link to="/refund-policy">{t('환불 정책', 'Refunds')}</Link><Link to="/site-map">{t('사이트맵', 'Site map')}</Link></nav><small>© 2026 toesa</small></footer>
+
+    {installOpen && <div className="landing-install-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setInstallOpen(false)}><section ref={installDialogRef} role="dialog" aria-modal="true" aria-labelledby={installTitleId} tabIndex={-1}><button className="landing-install-close" type="button" onClick={() => setInstallOpen(false)} aria-label={t('닫기', 'Close')}>×</button><span className="landing-install-icon"><BrandMark /></span><h2 id={installTitleId}>{t('퇴사를 앱으로 만들까요?', 'Make toesa an app?')}</h2><p>{t('앱스토어 다운로드 없이 홈 화면과 앱 목록에 아이콘을 추가합니다.', 'Add an icon to your home screen and app list without an app store download.')}</p><ul><li>{t('독립된 앱 화면으로 빠르게 실행됩니다.', 'Opens quickly in its own app window.')}</li><li>{t('기본 화면 일부를 저장하지만, 최신 조회와 변경에는 인터넷이 필요합니다.', 'Keeps part of the shell offline; current data and changes still need internet.')}</li><li>{t('알림·카메라 같은 권한은 자동으로 허용되지 않습니다.', 'Notification and camera permissions are not granted automatically.')}</li><li>{t('기기 설정에서 언제든 제거할 수 있습니다.', 'You can remove it anytime in device settings.')}</li></ul>{installable ? <div className="landing-install-actions"><button type="button" onClick={() => setInstallOpen(false)}>{t('나중에', 'Not now')}</button><button className="confirm" type="button" onClick={install}>{t('APP 만들기', 'Install app')}</button></div> : <div className="landing-install-manual"><strong>{t('브라우저 메뉴에서 직접 추가해 주세요.', 'Add it from your browser menu.')}</strong><p>{t('iPhone/iPad: Safari 공유 버튼 → 홈 화면에 추가\nAndroid/PC: 브라우저 메뉴 → 앱 설치 또는 홈 화면에 추가', 'iPhone/iPad: Safari Share → Add to Home Screen\nAndroid/Desktop: Browser menu → Install app or Add to Home Screen')}</p></div>}</section></div>}
   </main>;
 }
 

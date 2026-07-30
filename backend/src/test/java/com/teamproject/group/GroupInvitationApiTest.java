@@ -204,26 +204,21 @@ class GroupInvitationApiTest {
     }
 
     @Test
-    void freeGroupReportIsLimitedToTwoPerWeekButPersonalReportIsUnlimited() throws Exception {
+    void freeAndPersonalReportsAreUnlimitedWhileGroupScopeStillRequiresLeader() throws Exception {
         Account owner = account("report_owner", "report-owner@example.com");
         Account member = account("report_member", "report-member@example.com");
         long teamId = team(owner.user(), "무료 리포트 팀");
         members.save(GroupMember.member(groups.findById(teamId).orElseThrow(), member.user()));
         String groupReport = "{\"scope\":\"GROUP\",\"periodType\":\"WEEKLY\"}";
 
-        for (int index = 0; index < 2; index++) {
+        for (int index = 0; index < 4; index++) {
             mvc.perform(post("/api/v1/groups/{groupId}/reports/access", teamId)
                             .header("Authorization", bearer(owner))
                             .contentType(MediaType.APPLICATION_JSON).content(groupReport))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.membershipPlan").value("FREE"))
-                    .andExpect(jsonPath("$.remainingThisWeek").value(1 - index));
+                    .andExpect(jsonPath("$.remainingThisWeek").doesNotExist());
         }
-        mvc.perform(post("/api/v1/groups/{groupId}/reports/access", teamId)
-                        .header("Authorization", bearer(owner))
-                        .contentType(MediaType.APPLICATION_JSON).content(groupReport))
-                .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.code").value("FREE_REPORT_WEEKLY_LIMIT"));
         mvc.perform(post("/api/v1/groups/{groupId}/reports/access", teamId)
                         .header("Authorization", bearer(member))
                         .contentType(MediaType.APPLICATION_JSON)

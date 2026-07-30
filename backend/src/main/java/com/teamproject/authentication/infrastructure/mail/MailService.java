@@ -4,6 +4,7 @@ import org.slf4j.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -31,6 +32,25 @@ public class MailService {
             log.error("Mail delivery failed. recipient={} subject={} error={} message={}",
                     maskRecipient(to), subject, exception.getClass().getSimpleName(), exception.getMessage());
             log.debug("Mail delivery failure detail", exception);
+        }
+    }
+
+    public boolean sendHtmlBestEffort(String to, String subject, String html) {
+        if (!enabled) {
+            log.info("[LOCAL MAIL] recipient={} subject={} bodyLength={} contentType=text/html (content redacted)",
+                    maskRecipient(to), subject, html == null ? 0 : html.length());
+            return true;
+        }
+        try {
+            var message = sender.createMimeMessage();
+            var helper = new MimeMessageHelper(message, false, java.nio.charset.StandardCharsets.UTF_8.name());
+            helper.setFrom(from); helper.setTo(to); helper.setSubject(subject); helper.setText(html, true);
+            sender.send(message);
+            return true;
+        } catch (RuntimeException | jakarta.mail.MessagingException exception) {
+            log.error("HTML mail delivery failed. recipient={} subject={} error={}",
+                    maskRecipient(to), subject, exception.getClass().getSimpleName());
+            return false;
         }
     }
 

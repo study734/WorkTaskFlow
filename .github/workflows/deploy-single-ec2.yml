@@ -1,0 +1,369 @@
+name: Deploy single EC2
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-single-ec2-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
+      DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+      TLS_EMAIL: ${{ vars.TLS_EMAIL }}
+      EC2_HOST: ${{ vars.EC2_HOST }}
+      EC2_USER: ${{ vars.EC2_USER }}
+      EC2_SSH_PORT: ${{ vars.EC2_SSH_PORT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Validate deployment configuration
+        env:
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
+          MYSQL_APP_PASSWORD: ${{ secrets.MYSQL_APP_PASSWORD }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OAUTH2_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH2_GOOGLE_CLIENT_ID }}
+          OAUTH2_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH2_GOOGLE_CLIENT_SECRET }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          TOSS_CLIENT_KEY: ${{ secrets.TOSS_CLIENT_KEY }}
+          TOSS_SECRET_KEY: ${{ secrets.TOSS_SECRET_KEY }}
+          PAYMENT_ENCRYPTION_KEY_BASE64: ${{ secrets.PAYMENT_ENCRYPTION_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          required_variables=(
+            PUBLIC_SITE_URL DOMAIN_NAME TLS_EMAIL EC2_HOST EC2_USER EC2_SSH_PORT
+          )
+          required_secrets=(
+            EC2_SSH_PRIVATE_KEY EC2_SSH_KNOWN_HOSTS
+            MYSQL_APP_PASSWORD MYSQL_ROOT_PASSWORD
+            JWT_SECRET OAUTH2_GOOGLE_CLIENT_ID OAUTH2_GOOGLE_CLIENT_SECRET
+            MAIL_HOST MAIL_PORT MAIL_USERNAME MAIL_PASSWORD MAIL_FROM
+            TOSS_CLIENT_KEY TOSS_SECRET_KEY PAYMENT_ENCRYPTION_KEY_BASE64
+          )
+          for name in "${required_variables[@]}"; do
+            [[ -n "${!name:-}" ]] || {
+              echo "::error::GitHub Actions variable ${name} is empty."
+              exit 1
+            }
+          done
+          for name in "${required_secrets[@]}"; do
+            [[ -n "${!name:-}" ]] || {
+              echo "::error::GitHub Actions secret ${name} is empty."
+              exit 1
+            }
+          done
+          [[ "$PUBLIC_SITE_URL" == "https://${DOMAIN_NAME}" ]] || {
+            echo "::error::PUBLIC_SITE_URL must be https://DOMAIN_NAME."
+            exit 1
+          }
+          [[ "$EC2_SSH_PORT" =~ ^[0-9]+$ ]] || {
+            echo "::error::EC2_SSH_PORT must be numeric."
+            exit 1
+          }
+          [[ "$DOMAIN_NAME" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && "$DOMAIN_NAME" == *.* ]] || {
+            echo "::error::DOMAIN_NAME must be a lowercase DNS name."
+            exit 1
+          }
+          [[ "$TLS_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]] || {
+            echo "::error::TLS_EMAIL must be a valid contact email."
+            exit 1
+          }
+          [[ "$TOSS_CLIENT_KEY" == test_ck_* || "$TOSS_CLIENT_KEY" == test_gck_* ]] || {
+            echo "::error::TOSS_CLIENT_KEY must be an official test client key."
+            exit 1
+          }
+          [[ "$TOSS_SECRET_KEY" == test_sk_* || "$TOSS_SECRET_KEY" == test_gsk_* ]] || {
+            echo "::error::TOSS_SECRET_KEY must be an official test secret key."
+            exit 1
+          }
+          [[ "$MYSQL_APP_PASSWORD" != "$MYSQL_ROOT_PASSWORD" ]] || {
+            echo "::error::MYSQL_APP_PASSWORD and MYSQL_ROOT_PASSWORD must be different."
+            exit 1
+          }
+          decoded_key_bytes="$(
+            printf '%s' "$PAYMENT_ENCRYPTION_KEY_BASE64" | base64 --decode | wc -c | tr -d ' '
+          )"
+          [[ "$decoded_key_bytes" == "32" ]] || {
+            echo "::error::PAYMENT_ENCRYPTION_KEY_BASE64 must decode to exactly 32 bytes."
+            exit 1
+          }
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push versioned images
+        id: images
+        run: |
+          set -euo pipefail
+          namespace="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          image_tag="sha-${SOURCE_SHA}"
+          backend_image="ghcr.io/${namespace}/worktaskflow-backend:${image_tag}"
+          web_image="ghcr.io/${namespace}/worktaskflow-web:${image_tag}"
+
+          docker buildx build \
+            --file backend/Dockerfile \
+            --tag "$backend_image" \
+            --cache-from type=gha,scope=backend \
+            --cache-to type=gha,mode=max,scope=backend \
+            --push .
+          docker buildx build \
+            --file frontend/Dockerfile \
+            --build-arg VITE_PUBLIC_SITE_URL="$PUBLIC_SITE_URL" \
+            --build-arg VITE_API_BASE_URL=/api/v1 \
+            --build-arg VITE_ALLOW_INDEXING=true \
+            --build-arg VITE_ADMIN_PORT=19091 \
+            --tag "$web_image" \
+            --cache-from type=gha,scope=web \
+            --cache-to type=gha,mode=max,scope=web \
+            --push .
+
+          echo "backend_image=${backend_image}" >> "$GITHUB_OUTPUT"
+          echo "web_image=${web_image}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare SSH and runtime configuration
+        env:
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend_image }}
+          WEB_IMAGE: ${{ steps.images.outputs.web_image }}
+          MYSQL_APP_PASSWORD: ${{ secrets.MYSQL_APP_PASSWORD }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OAUTH2_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH2_GOOGLE_CLIENT_ID }}
+          OAUTH2_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH2_GOOGLE_CLIENT_SECRET }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          TOSS_CLIENT_KEY: ${{ secrets.TOSS_CLIENT_KEY }}
+          TOSS_SECRET_KEY: ${{ secrets.TOSS_SECRET_KEY }}
+          PAYMENT_ENCRYPTION_KEY_BASE64: ${{ secrets.PAYMENT_ENCRYPTION_KEY_BASE64 }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$EC2_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          reject_newline() {
+            local name="$1"
+            local value="$2"
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+              echo "::error::${name} must not contain a newline."
+              exit 1
+            fi
+          }
+          write_env() {
+            local name="$1"
+            local value="$2"
+            reject_newline "$name" "$value"
+            value="${value//\\/\\\\}"
+            value="${value//\'/\\\'}"
+            printf "%s='%s'\n" "$name" "$value" >> runtime.env
+          }
+
+          umask 077
+          : > runtime.env
+          write_env BACKEND_IMAGE "$BACKEND_IMAGE"
+          write_env WEB_IMAGE "$WEB_IMAGE"
+          write_env DOMAIN_NAME "$DOMAIN_NAME"
+          write_env TLS_EMAIL "$TLS_EMAIL"
+          write_env RUNTIME_ENV_FILE runtime.env.current
+          write_env APP_ENVIRONMENT production
+          write_env SERVER_PORT 8081
+          write_env FRONTEND_URL "$PUBLIC_SITE_URL"
+          write_env AUTH_SECURE_COOKIE true
+          write_env SERVER_FORWARD_HEADERS_STRATEGY framework
+          write_env MYSQL_APP_PASSWORD "$MYSQL_APP_PASSWORD"
+          write_env SPRING_DATASOURCE_URL "jdbc:mysql://mysql:3306/totaskflow?sslMode=DISABLED&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8"
+          write_env SPRING_DATASOURCE_USERNAME totaskflow
+          write_env SPRING_DATASOURCE_PASSWORD "$MYSQL_APP_PASSWORD"
+          write_env SPRING_JPA_HIBERNATE_DDL_AUTO validate
+          write_env JWT_SECRET "$JWT_SECRET"
+          write_env OAUTH2_GOOGLE_CLIENT_ID "$OAUTH2_GOOGLE_CLIENT_ID"
+          write_env OAUTH2_GOOGLE_CLIENT_SECRET "$OAUTH2_GOOGLE_CLIENT_SECRET"
+          write_env MAIL_ENABLED true
+          write_env MAIL_HOST "$MAIL_HOST"
+          write_env MAIL_PORT "$MAIL_PORT"
+          write_env MAIL_USERNAME "$MAIL_USERNAME"
+          write_env MAIL_PASSWORD "$MAIL_PASSWORD"
+          write_env MAIL_FROM "$MAIL_FROM"
+          write_env MAIL_SMTP_AUTH true
+          write_env MAIL_STARTTLS true
+          write_env STORAGE_PROVIDER local
+          write_env UPLOAD_LOCAL_ROOT /var/lib/totaskflow/uploads
+          write_env OPENAI_API_KEY "$OPENAI_API_KEY"
+          write_env TOSS_CLIENT_KEY "$TOSS_CLIENT_KEY"
+          write_env TOSS_SECRET_KEY "$TOSS_SECRET_KEY"
+          write_env PAYMENT_ENCRYPTION_KEY_BASE64 "$PAYMENT_ENCRYPTION_KEY_BASE64"
+          write_env DEMO_ENABLED false
+          write_env ADMIN_ENABLED false
+          write_env TOSS_TEST_MODE true
+          write_env SUBSCRIPTION_LIVE_BILLING_ENABLED false
+
+          printf '%s' "$MYSQL_ROOT_PASSWORD" > mysql-root-password
+          chmod 600 mysql-root-password
+          {
+            printf 'DOMAIN_NAME=%q\n' "$DOMAIN_NAME"
+            printf 'TLS_EMAIL=%q\n' "$TLS_EMAIL"
+          } > deployment.env
+          chmod 600 deployment.env
+
+      - name: Upload deployment configuration
+        run: |
+          set -euo pipefail
+          ssh_options=(
+            -i "$HOME/.ssh/deploy_key"
+            -p "$EC2_SSH_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_options=(
+            -i "$HOME/.ssh/deploy_key"
+            -P "$EC2_SSH_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          ssh "${ssh_options[@]}" "${EC2_USER}@${EC2_HOST}" \
+            "sudo install -d -m 700 -o '${EC2_USER}' -g '${EC2_USER}' /opt/totaskflow"
+          scp "${scp_options[@]}" \
+            infra/single-ec2/compose.yml \
+            infra/single-ec2/nginx-app-locations.conf \
+            infra/single-ec2/nginx-http.conf.template \
+            infra/single-ec2/nginx-https.conf.template \
+            infra/single-ec2/renew-certificates.sh \
+            infra/single-ec2/totaskflow-cert-renew.service \
+            infra/single-ec2/totaskflow-cert-renew.timer \
+            runtime.env \
+            deployment.env \
+            mysql-root-password \
+            "${EC2_USER}@${EC2_HOST}:/opt/totaskflow/"
+
+      - name: Deploy on the single EC2 server
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ssh_options=(
+            -i "$HOME/.ssh/deploy_key"
+            -p "$EC2_SSH_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          printf '%s' "$GHCR_TOKEN" |
+            ssh "${ssh_options[@]}" "${EC2_USER}@${EC2_HOST}" \
+              "sudo docker login ghcr.io --username '${{ github.actor }}' --password-stdin"
+          ssh "${ssh_options[@]}" "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
+            set -euo pipefail
+            cd /opt/totaskflow
+            chmod 600 runtime.env deployment.env mysql-root-password
+            if [[ -f runtime.env.current ]]; then
+              cp runtime.env.current runtime.env.previous
+            fi
+            cp runtime.env runtime.env.current
+            . ./deployment.env
+
+            certificate_exists() {
+              sudo docker compose --env-file runtime.env.current -f compose.yml \
+                run --rm --no-TTY --entrypoint sh certbot \
+                -c "test -f /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem" \
+                </dev/null
+            }
+
+            if certificate_exists; then
+              cp nginx-https.conf.template nginx-active.conf.template
+            else
+              cp nginx-http.conf.template nginx-active.conf.template
+            fi
+
+            sudo docker compose --env-file runtime.env.current -f compose.yml pull
+            sudo docker compose --env-file runtime.env.current -f compose.yml up -d --remove-orphans
+
+            if ! certificate_exists; then
+              sudo docker compose --env-file runtime.env.current -f compose.yml run --rm --no-TTY certbot \
+                certonly --webroot --webroot-path /var/www/certbot \
+                --non-interactive --agree-tos --no-eff-email \
+                --email "$TLS_EMAIL" \
+                -d "$DOMAIN_NAME" -d "www.${DOMAIN_NAME}" \
+                </dev/null
+            else
+              sudo docker compose --env-file runtime.env.current -f compose.yml run --rm --no-TTY certbot \
+                renew --quiet \
+                </dev/null
+            fi
+
+            cp nginx-https.conf.template nginx-active.conf.template
+            sudo docker compose --env-file runtime.env.current -f compose.yml \
+              up -d --force-recreate web
+
+            chmod 755 renew-certificates.sh
+            sudo install -m 644 totaskflow-cert-renew.service \
+              /etc/systemd/system/totaskflow-cert-renew.service
+            sudo install -m 644 totaskflow-cert-renew.timer \
+              /etc/systemd/system/totaskflow-cert-renew.timer
+            sudo systemctl daemon-reload
+            sudo systemctl enable --now totaskflow-cert-renew.timer
+
+            sudo docker logout ghcr.io >/dev/null 2>&1 || true
+            sudo docker image prune -f >/dev/null
+          REMOTE
+
+      - name: Verify public service
+        run: |
+          set -euo pipefail
+          base_url="${PUBLIC_SITE_URL%/}"
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 10 "$base_url/healthz" >/dev/null \
+              && curl --fail --silent --show-error --max-time 10 "$base_url/api/v1/health/ready" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Single EC2 deployment health check failed."
+          exit 1
+
+      - name: Deployment summary
+        if: always()
+        env:
+          IMAGE_TAG: ${{ steps.images.outputs.image_tag }}
+        run: |
+          {
+            echo "### Single EC2 deployment"
+            echo "- Commit: \`${SOURCE_SHA}\`"
+            echo "- Image tag: \`${IMAGE_TAG:-not-built}\`"
+            echo "- Domain: \`${DOMAIN_NAME}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

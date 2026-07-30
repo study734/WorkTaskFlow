@@ -11,6 +11,7 @@ import com.teamproject.group.domain.GroupMemberRepository;
 import com.teamproject.task.domain.Task;
 import com.teamproject.task.domain.TaskRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.*;
@@ -24,13 +25,16 @@ public class CalendarService {
     private final TaskRepository tasks;
     private final GroupMemberRepository members;
     private final GroupAuthorization authorization;
+    private final long rejectedTaskRetentionHours;
 
     public CalendarService(CalendarEventRepository events, TaskRepository tasks,
-            GroupMemberRepository members, GroupAuthorization authorization) {
+            GroupMemberRepository members, GroupAuthorization authorization,
+            @Value("${app.calendar.rejected-task-retention-hours:24}") long rejectedTaskRetentionHours) {
         this.events = events;
         this.tasks = tasks;
         this.members = members;
         this.authorization = authorization;
+        this.rejectedTaskRetentionHours = Math.max(0, rejectedTaskRetentionHours);
     }
 
     @Transactional(readOnly = true)
@@ -103,6 +107,7 @@ public class CalendarService {
                 group.getId(), toUtc, fromUtc).stream().map(this::eventResponse).forEach(items::add);
         tasks.findAllByGroupIdAndDueAtGreaterThanEqualAndDueAtLessThanOrderByDueAtAscIdAsc(
                 group.getId(), from.atStartOfDay(), to.atStartOfDay()).stream()
+                .filter(task -> task.isCalendarDeadlineVisible(LocalDateTime.now(), rejectedTaskRetentionHours))
                 .map(this::taskResponse).forEach(items::add);
     }
 

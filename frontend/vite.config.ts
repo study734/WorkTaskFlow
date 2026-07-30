@@ -1,54 +1,48 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// NGROK
 const backendProxy = {
   target: 'http://localhost:8081',
   changeOrigin: true,
   xfwd: true,
 };
-// NGROK
+const adminBackendProxy = {
+  target: 'http://localhost:19092',
+  changeOrigin: true,
+  xfwd: true,
+};
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '..', '');
+  const adminMode = mode === 'admin';
   const publicSiteUrl = String(env.VITE_PUBLIC_SITE_URL || 'http://localhost:5174').replace(/\/$/, '');
   const allowIndexing = env.VITE_ALLOW_INDEXING === 'true';
+  const normalProxy = {
+    '/api': backendProxy,
+    '/oauth2': backendProxy,
+    '/login/oauth2': backendProxy,
+    '/uploads': backendProxy,
+  };
   return {
   plugins: [react(), seoFilesPlugin(publicSiteUrl, env.VITE_GOOGLE_SITE_VERIFICATION || '', allowIndexing)],
   envDir: '..',
   server: {
-    // NGROK
-    host: true,
-    port: 5174,
+    host: '127.0.0.1',
+    port: adminMode ? 19091 : 5174,
     strictPort: true,
-    allowedHosts: ['.ngrok-free.app', '.ngrok.app', '.ngrok.io'],
-    proxy: {
-      '/api': backendProxy,
-      '/oauth2': backendProxy,
-      '/login/oauth2': backendProxy,
-      '/uploads': backendProxy,
-    },
-    // NGROK
+    proxy: adminMode ? { '/api/v1/admin': adminBackendProxy, ...normalProxy } : normalProxy,
   },
   preview: {
-    // NGROK
-    host: true,
-    port: 5174,
+    host: '127.0.0.1',
+    port: adminMode ? 19091 : 5174,
     strictPort: true,
-    allowedHosts: ['.ngrok-free.app', '.ngrok.app', '.ngrok.io'],
-    proxy: {
-      '/api': backendProxy,
-      '/oauth2': backendProxy,
-      '/login/oauth2': backendProxy,
-      '/uploads': backendProxy,
-    },
-    // NGROK
+    proxy: adminMode ? { '/api/v1/admin': adminBackendProxy, ...normalProxy } : normalProxy,
   },
   };
 });
 
 function seoFilesPlugin(siteUrl: string, verification: string, allowIndexing: boolean): Plugin {
-  const publicPaths = ['/', '/product', '/b2b', '/pricing', '/contact', '/privacy', '/terms', '/site-map'];
+  const publicPaths = ['/', '/demo', '/product', '/b2b', '/pricing', '/contact', '/privacy', '/terms', '/paid-terms', '/refund-policy', '/site-map'];
   const robots = allowIndexing ? [
     'User-agent: *',
     'Allow: /',

@@ -3,12 +3,11 @@ export function BrandMark({ className = '' }: { className?: string }) {
     className={className}
     viewBox="0 0 48 48"
     role="img"
-    aria-label="ToTaskFlow"
+    aria-label="toesa"
   >
-    <path d="M13 14h16c5 0 8 3 8 8s-3 8-8 8H19" />
-    <path d="m24 25-6 5 6 5" />
-    <circle cx="11" cy="14" r="4" />
-    <circle cx="37" cy="22" r="4" />
-    <circle cx="17" cy="30" r="4" />
+    <path d="M15 8h17a5 5 0 0 1 5 5v22a5 5 0 0 1-5 5H15" />
+    <path d="m19 17 4 4 8-9" />
+    <path d="M9 30h22" />
+    <path d="m26 25 5 5-5 5" />
   </svg>;
 }

@@ -6,7 +6,7 @@ export type PaymentMethod = {
   status: 'ACTIVE' | 'INACTIVE' | 'DELETED'; createdAt: string;
 };
 export type PaymentAttempt = {
-  id: number; paymentMethodId?: number; operationType: 'BILLING_KEY_ISSUE' | 'TEST_CHARGE';
+  id: number; paymentMethodId?: number; operationType: 'BILLING_KEY_ISSUE' | 'TEST_CHARGE' | 'SUBSCRIPTION_CHARGE';
   orderId?: string; amount?: number; status: 'PENDING' | 'SUCCESS' | 'FAILED';
   httpStatus?: number; providerCode?: string; providerMessage?: string; retryCount: number; createdAt: string;
 };

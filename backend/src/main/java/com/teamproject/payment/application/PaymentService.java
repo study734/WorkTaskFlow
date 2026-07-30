@@ -112,6 +112,29 @@ public class PaymentService {
         return response(attempt);
     }
 
+    @Transactional(noRollbackFor = ApplicationException.class)
+    public PaymentAttemptResponse subscriptionCharge(Long userId, Long methodId, Long groupId, long amount) {
+        requireConfigured();
+        if (amount < 100) {
+            throw new ApplicationException("SUBSCRIPTION_AMOUNT_INVALID", HttpStatus.BAD_REQUEST, "구독 결제 금액을 확인해 주세요.");
+        }
+        PaymentMethod method = activeMethod(userId, methodId);
+        User user = user(userId);
+        String orderId = "sub-" + groupId + "-" + UUID.randomUUID();
+        PaymentAttempt attempt = attempts.save(new PaymentAttempt(user, method,
+                PaymentAttempt.OperationType.SUBSCRIPTION_CHARGE, UUID.randomUUID().toString(), orderId, amount));
+        TossPaymentsClient.ApiResult result = toss.charge(cipher.decrypt(method.getEncryptedBillingKey()),
+                user.getPaymentCustomerKey(), amount, orderId, "퇴사 팀 구독", attempt.getIdempotencyKey());
+        if (!result.successful()) {
+            fail(attempt, result);
+            throw providerFailure(result);
+        }
+        attempt.success(result.status());
+        audit.info("event=SUBSCRIPTION_CHARGE outcome=SUCCESS userId={} groupId={} methodId={} attemptId={} amount={}",
+                userId, groupId, methodId, attempt.getId(), amount);
+        return response(attempt);
+    }
+
     @Transactional(readOnly = true)
     public List<PaymentAttemptResponse> attempts(Long userId) {
         user(userId);

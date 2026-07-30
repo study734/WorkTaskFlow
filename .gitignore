@@ -1,4 +1,35 @@
+# Local environment and secret files
 .env
+.env.*
+!.env.example
+*.local
+*.secret
+*.secrets
+secrets/
+
+# Private project notes and checklists
+*.md
+*.txt
+!GITHUB_ACTIONS_SECRETS_SETUP.txt
+
+# Credentials and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+credentials.json
+service-account*.json
+mysql-root-password
+runtime.env
+runtime.env.current
+runtime.env.previous
+deployment.env
+nginx-active.conf.template
+
 .idea/
 .vscode/
 backend/target/
@@ -10,4 +41,14 @@ frontend/dist/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# Local editor, OS, log, cache, and temporary files
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+coverage/
+.cache/
 *.iml

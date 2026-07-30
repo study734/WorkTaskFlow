@@ -71,7 +71,7 @@ public class GroupInvitationService {
         GroupInvitation invitation = invitations.save(new GroupInvitation(inviter.getGroup(), email, inviter,
                 hashes.sha256(token), LocalDateTime.now().plusHours(invitationHours)));
         String link = frontendUrl + "/group-invitations/accept?token=" + token;
-        mail.sendBestEffort(email, "[ToTaskFlow] 그룹 초대", inviter.getGroup().getName()
+        mail.sendBestEffort(email, "[퇴사] 그룹 초대", inviter.getGroup().getName()
                 + " 그룹에 초대되었습니다.\n" + link + "\n" + invitationHours + "시간 안에 수락해 주세요.");
         return response(invitation);
     }

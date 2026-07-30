@@ -23,6 +23,9 @@ public class Group {
     private DashboardVisibility dashboardVisibility;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20)
     private MembershipPlan membershipPlan;
+    private LocalDateTime paidStartedAt;
+    private LocalDateTime paidUntil;
+    private LocalDateTime nextBillingAt;
     @Column(name = "join_code_hash", length = 64, unique = true)
     private String joinCodeHash;
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -78,6 +81,31 @@ public class Group {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public void switchTestMembership(MembershipPlan plan, LocalDateTime now) {
+        if (type != Type.TEAM) throw new IllegalStateException("Personal groups cannot use paid membership.");
+        this.membershipPlan = plan;
+        if (plan == MembershipPlan.PAID) {
+            this.paidStartedAt = now;
+            this.paidUntil = now.plusDays(30);
+            this.nextBillingAt = paidUntil;
+        } else {
+            this.paidStartedAt = null;
+            this.paidUntil = null;
+            this.nextBillingAt = null;
+        }
+        this.updatedAt = now;
+    }
+
+    public void applySubscription(MembershipPlan plan, LocalDateTime startedAt,
+            LocalDateTime paidUntil, LocalDateTime nextBillingAt) {
+        if (type != Type.TEAM) throw new IllegalStateException("Personal groups cannot use paid membership.");
+        this.membershipPlan = plan;
+        this.paidStartedAt = plan == MembershipPlan.PAID ? startedAt : null;
+        this.paidUntil = plan == MembershipPlan.PAID ? paidUntil : null;
+        this.nextBillingAt = plan == MembershipPlan.PAID ? nextBillingAt : null;
+        this.updatedAt = LocalDateTime.now();
+    }
+
     public void issueJoinCodeHash(String joinCodeHash) {
         if (type != Type.TEAM) throw new IllegalStateException("Personal groups cannot have a join code.");
         this.joinCodeHash = joinCodeHash;
@@ -97,6 +125,9 @@ public class Group {
     public String getTimezone() { return timezone; }
     public DashboardVisibility getDashboardVisibility() { return dashboardVisibility; }
     public MembershipPlan getMembershipPlan() { return membershipPlan; }
+    public LocalDateTime getPaidStartedAt() { return paidStartedAt; }
+    public LocalDateTime getPaidUntil() { return paidUntil; }
+    public LocalDateTime getNextBillingAt() { return nextBillingAt; }
     public String getJoinCodeHash() { return joinCodeHash; }
     public User getCreatedBy() { return createdBy; }
     public LocalDateTime getCreatedAt() { return createdAt; }

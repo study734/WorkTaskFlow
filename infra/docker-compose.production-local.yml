@@ -1,0 +1,57 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: totaskflow
+      MYSQL_ROOT_PASSWORD: local-production-test
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-plocal-production-test"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      SERVER_PORT: 8081
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/totaskflow?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: local-production-test
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      FRONTEND_URL: http://localhost:8080
+      JWT_SECRET: local-production-test-secret-change-me-1234567890
+      AUTH_SECURE_COOKIE: "false"
+      STORAGE_PROVIDER: local
+      ADMIN_ENABLED: "true"
+      ADMIN_PORT: 19092
+      ADMIN_ALLOWED_IPS: 127.0.0.1
+      ADMIN_TRUSTED_PROXIES: 172.16.0.0/12
+      ADMIN_FRONTEND_URL: http://localhost:19091
+      ADMIN_MFA_ENCRYPTION_KEY_BASE64: ${ADMIN_MFA_ENCRYPTION_KEY_BASE64}
+      SUBSCRIPTION_LIVE_BILLING_ENABLED: "false"
+      TOSS_TEST_MODE: "true"
+      MAIL_ENABLED: "false"
+      DEMO_ENABLED: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_PUBLIC_SITE_URL: http://localhost:8080
+        VITE_API_BASE_URL: /api/v1
+        VITE_ALLOW_INDEXING: "false"
+        VITE_ADMIN_PORT: "19091"
+    ports:
+      - "8080:8080"
+      - "19091:19091"
+    environment:
+      BACKEND_NORMAL: backend:8081
+      BACKEND_ADMIN: backend:19092
+    depends_on:
+      - backend

@@ -1,5 +1,5 @@
-const CACHE_NAME = 'totaskflow-shell-v4';
-const APP_SHELL = ['/', '/app', '/manifest.webmanifest', '/icons/app-icon.svg'];
+const CACHE_NAME = 'toesa-shell-v7';
+const APP_SHELL = ['/app', '/manifest.webmanifest', '/icons/app-icon.svg', '/icons/app-icon-192.png', '/icons/app-icon-512.png', '/icons/app-icon-maskable-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -33,7 +33,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).catch(async () => (await caches.match(request)) || caches.match('/')));
+    event.respondWith(fetch(request).catch(async () => (await caches.match(request)) || caches.match('/app')));
     return;
   }
 

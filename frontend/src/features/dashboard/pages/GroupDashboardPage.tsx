@@ -1,13 +1,12 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { accessToken, errorMessage, saveDownloadedFile } from '../../../api/client';
+import { accessToken, errorMessage } from '../../../api/client';
 import { dashboardApi, DashboardTask, GroupDashboard } from '../../../api/dashboardApi';
 import { taskApi, TaskPriority } from '../../../api/taskApi';
 import { AppNavigation, Modal } from '../../../app/AppNavigation';
 import { groupApi, GroupResponse } from '../../../api/groupApi';
+import { reportApi } from '../../../api/reportApi';
 import { useLanguage } from '../../../app/LanguageContext';
-import { lastCompletedWeekStart } from '../../../app/week';
-import { AiWeeklyReportAction } from '../../report/components/AiWeeklyReportAction';
 
 const statusLabels: Record<string, [string, string]> = { requested: ['승인 대기', 'Pending approval'], todo: ['할 일', 'To do'], inProgress: ['진행 중', 'In progress'], onHold: ['보류', 'On hold'], completed: ['완료', 'Completed'], rejected: ['반려', 'Rejected'], cancelled: ['취소', 'Cancelled'], delayed: ['지연', 'Overdue'] };
 const taskStatusLabels: Record<string, [string, string]> = { REQUESTED: ['승인 대기', 'Pending approval'], TODO: ['할 일', 'To do'], IN_PROGRESS: ['진행 중', 'In progress'], ON_HOLD: ['보류', 'On hold'], COMPLETED: ['완료', 'Completed'], REJECTED: ['반려', 'Rejected'], CANCELLED: ['취소', 'Cancelled'] };
@@ -68,20 +67,42 @@ export function GroupDashboardPage() {
     } catch (value) { setCreateError(errorMessage(value)); }
     finally { setSaving(false); }
   }
-  async function downloadReport(scope: ReportScope = reportScope, period: ReportPeriod = reportPeriod) {
+  async function downloadReport(scope: ReportScope = reportScope, period: ReportPeriod = reportPeriod,
+      documentLanguage: 'KO' | 'EN' = language === 'ko' ? 'KO' : 'EN') {
+    const reportRangeValue = reportRange(year, month, week, period, language);
+    if (scope === 'GROUP') {
+      setReportPending(true);
+      setReportMessage('');
+      try {
+        await groupApi.authorizeReport(groupId, scope, period);
+        await reportApi.download(groupId, reportRangeValue.from, reportRangeValue.to, documentLanguage);
+        setReportMessage(t('서버가 확정 지표로 리포트를 생성했습니다.', 'The server generated a report from confirmed metrics.'));
+      } catch (value) {
+        setReportMessage(errorMessage(value));
+      } finally {
+        setReportPending(false);
+      }
+      return;
+    }
+    const reportWindow = window.open('', '_blank', 'width=900,height=760');
+    if (!reportWindow) {
+      setReportMessage(t('PDF 리포트를 열려면 브라우저의 팝업을 허용해 주세요.', 'Allow pop-ups in your browser to open the PDF report.'));
+      return;
+    }
+    reportWindow.document.write(`<p style="font-family:sans-serif;padding:32px">${t('리포트를 생성하고 있습니다...', 'Generating report...')}</p>`);
     setReportPending(true);
     setReportMessage('');
     try {
-      const reportRangeValue = reportRange(year, month, week, period, language);
-      const file = await groupApi.downloadBasicReport(groupId, {
-        scope,
-        periodType: period,
-        from: reportRangeValue.from,
-        to: reportRangeValue.to,
-        language,
-      });
-      saveDownloadedFile(file);
+      const memberReport = scope === 'MY'
+        ? await dashboardApi.memberReport(groupId, reportRangeValue.from, reportRangeValue.to)
+        : undefined;
+      await groupApi.authorizeReport(groupId, scope, period);
+      const tasks = memberReport?.tasks ?? [];
+      printReport(memberReport?.groupName ?? group?.name ?? t('그룹', 'Group'),
+        reportRangeValue.label, tasks, scope, period, reportWindow, language);
+      setReportMessage(t('PDF 리포트를 생성했습니다. 모든 기간과 범위의 기본 리포트는 제한 없이 이용할 수 있습니다.', 'PDF report created. Core reports are unlimited for every period and scope.'));
     } catch (value) {
+      reportWindow.close();
       setReportMessage(errorMessage(value));
     } finally {
       setReportPending(false);
@@ -90,7 +111,7 @@ export function GroupDashboardPage() {
   if (!accessToken.get()) return <Navigate to="/login" replace />;
   const years = Array.from({ length: 5 }, (_, index) => today.getFullYear() - 3 + index);
   return <><AppNavigation /><main className="group-dashboard-page app-page">
-    <header className="dashboard-header"><div><Link to="/groups">← {t('내 그룹', 'My groups')}</Link><h1>{dashboard?.groupName ?? t('그룹', 'Group')} {t('대시보드', 'Dashboard')}</h1><p>{t(`${periodLabel}의 업무와 일정을 모아봤어요.`, `Tasks and events for ${periodLabel}.`)}</p></div><div className="group-dashboard-actions"><button className="primary create-action" type="button" onClick={() => setShowCreate(true)}><span aria-hidden="true">＋</span> {t('새 업무', 'New task')}</button><Link className="secondary" to={`/groups/${groupId}/tasks`}>{t('업무 목록', 'Task list')}</Link><Link className="settings-icon-button" to={`/groups/${groupId}`} aria-label={t('그룹 설정', 'Group settings')}>⚙</Link></div></header>
+    <header className="dashboard-header"><div><Link to="/groups">← {t('내 그룹', 'My groups')}</Link><h1>{dashboard?.groupName ?? t('그룹', 'Group')} {t('대시보드', 'Dashboard')}</h1><p>{t(`${periodLabel}의 업무와 일정을 모아봤어요.`, `Tasks and events for ${periodLabel}.`)}</p></div><div className="group-dashboard-actions"><button className="primary create-action" type="button" onClick={() => setShowCreate(true)}><span aria-hidden="true">＋</span> {t('새 업무', 'New task')}</button><Link className="secondary" to={`/groups/${groupId}/tasks`}>{t('업무', 'Tasks')}</Link><Link className="secondary" to={`/groups/${groupId}/members`}>{t('팀원', 'Members')}</Link><Link className="settings-icon-button" to={`/groups/${groupId}`} aria-label={t('그룹 설정', 'Group settings')}>⚙</Link></div></header>
     <section className="dashboard-period dashboard-period-selectors"><div><label><span>{t('연도', 'Year')}</span><select value={year} onChange={(event) => setYear(Number(event.target.value))}>{years.map((value) => <option value={value} key={value}>{language === 'ko' ? `${value}년` : value}</option>)}</select></label><label><span>{t('월', 'Month')}</span><select value={month} onChange={(event) => { setMonth(Number(event.target.value)); setWeek(0); }}>{Array.from({ length: 12 }, (_, index) => index + 1).map((value) => <option value={value} key={value}>{language === 'ko' ? `${value}월` : monthName(value)}</option>)}</select></label><label><span>{t('주차', 'Week')}</span><select value={week} onChange={(event) => setWeek(Number(event.target.value))}><option value={0}>{t('월 전체', 'Full month')}</option>{availableWeeks(year, month).map((value) => <option value={value} key={value}>{t(`${value}주차`, `Week ${value}`)}</option>)}</select></label></div><div><button className="secondary" type="button" onClick={() => shiftMonth(year, month, -1, setYear, setMonth, setWeek)}>‹ {t('이전 달', 'Previous month')}</button><button className="secondary" type="button" onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth() + 1); setWeek(0); }}>{t('이번 달', 'This month')}</button></div></section>
     {error && <p className="error">{error}</p>}{loading && <p className="muted">{t('대시보드를 불러오는 중...', 'Loading dashboard...')}</p>}
     {!loading && !dashboard && group && <section className="dashboard-panel weekly-report-preview"><div className="dashboard-panel-title"><div><span className="page-eyebrow">MY REPORT</span><h2>{t('내 업무 리포트', 'My task report')}</h2><p>{t('그룹 전체 대시보드 공개 여부와 관계없이 본인 담당 업무를 확인할 수 있습니다.', 'View your assigned work regardless of group dashboard visibility.')}</p></div></div><div className="report-controls"><label><span>{t('기간', 'Period')}</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as ReportPeriod)}><option value="WEEKLY">{t('주간', 'Weekly')}</option><option value="MONTHLY">{t('월간', 'Monthly')}</option><option value="YEARLY">{t('연간', 'Yearly')}</option></select></label><button className="report-download" type="button" disabled={reportPending} onClick={() => downloadReport('MY', reportPeriod)}>{reportPending ? t('생성 중...', 'Generating...') : t('내 PDF 리포트 생성', 'Generate my PDF report')}</button></div>{reportMessage && <p className="error">{reportMessage}</p>}</section>}
@@ -103,8 +124,8 @@ export function GroupDashboardPage() {
         <section className="dashboard-panel"><div className="dashboard-panel-title inline"><div><h2>{t('그룹 전체 일정', 'Group schedule')}</h2><p>{t('내 담당 여부와 관계없이 그룹 일정을 보여줍니다.', 'Shows group events regardless of assignment.')}</p></div><Link to={`/calendar?groupId=${groupId}`}>{t('캘린더 열기', 'Open calendar')} →</Link></div>{dashboard.calendarItems.length === 0 ? <p className="empty-state">{t('이 기간에 등록된 일정이 없습니다.', 'No events in this period.')}</p> : <div className="group-calendar-preview">{dashboard.calendarItems.slice(0, 8).map((item) => <Link to={item.sourceTaskId ? `/tasks/${item.sourceTaskId}` : `/calendar?groupId=${groupId}`} key={`${item.source}-${item.eventId ?? item.sourceTaskId}`}><time>{item.startAt.slice(5, 10)}<small>{item.allDay ? t('종일', 'All day') : item.startAt.slice(11, 16)}</small></time><span><strong>{item.title}</strong><small>{item.ownerNickname ?? item.groupName}</small></span></Link>)}</div>}</section></section>
       <section className="dashboard-panel team-workload-panel"><div className="dashboard-panel-title inline"><div><span className="page-eyebrow">TEAM WORKLOAD</span><h2>{t('팀원별 담당 현황', 'Workload by member')}</h2><p>{t('팀원이 늘어나도 한눈에 비교할 수 있도록 전체 너비로 정리했습니다.', 'A full-width view that remains easy to compare as the team grows.')}</p></div><span className="member-count">{t(`${dashboard.members.length}명`, `${dashboard.members.length} members`)}</span></div><div className="member-metrics">{dashboard.members.map((member) => <article key={member.memberId}><div className="member-metric-heading"><span className="member-metric-avatar" aria-hidden="true">{member.nickname.slice(0, 1)}</span><span><strong>{member.nickname}</strong><small>{member.role === 'LEADER' ? t('팀장', 'Leader') : t('팀원', 'Member')}</small></span></div><dl><div><dt>{t('담당', 'Assigned')}</dt><dd>{member.assignedCount}</dd></div><div><dt>{t('진행', 'Active')}</dt><dd>{member.activeCount}</dd></div><div><dt>{t('완료', 'Done')}</dt><dd>{member.completedCount}</dd></div><div><dt>{t('지연', 'Overdue')}</dt><dd>{member.delayedCount}</dd></div><div><dt>{t('기한 준수', 'On time')}</dt><dd>{rate(member.onTimeRatePercent)}</dd></div></dl></article>)}</div></section>
       <section className="dashboard-panel risk-task-panel"><div className="dashboard-panel-title"><div><h2>{t('위험·우선 확인 업무', 'At-risk and priority tasks')}</h2><p>{t('지연되었거나 먼저 확인해야 하는 업무입니다.', 'Tasks that are overdue or need attention first.')}</p></div></div>{dashboard.riskTasks.length === 0 ? <p className="empty-state">{t('선택 기간에 위험 업무가 없습니다.', 'No at-risk tasks in this period.')}</p> : <div className="dashboard-task-list risk-task-grid">{dashboard.riskTasks.map((task) => <TaskLink task={task} key={task.id} />)}</div>}</section>
-      <section className="dashboard-panel weekly-report-preview"><div className="dashboard-panel-title inline"><div><span className="page-eyebrow">REPORTS</span><h2>{t('업무 리포트', 'Task reports')}</h2><p>{t('기본 리포트의 수치와 업무 흐름으로 PDF를 만들거나 AI 분석을 엽니다.', 'Create a PDF or open AI analysis from the basic-report metrics and work flow.')}</p></div><span className={`membership-badge ${group?.membershipPlan.toLowerCase() ?? 'free'}`}>{group?.membershipPlan === 'PAID' ? t('유료 그룹', 'Paid group') : t('무료 그룹', 'Free group')}</span></div><div className="report-controls"><label><span>{t('범위', 'Scope')}</span><select value={reportScope} onChange={(event) => setReportScope(event.target.value as ReportScope)}>{group?.role === 'LEADER' && <option value="GROUP">{t('그룹 전체', 'Whole group')}</option>}<option value="MY">{t('내 업무', 'My tasks')}</option></select></label><label><span>{t('기간', 'Period')}</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as ReportPeriod)}><option value="WEEKLY">{t('주간', 'Weekly')}</option><option value="MONTHLY">{t('월간', 'Monthly')}</option><option value="YEARLY">{t('연간', 'Yearly')}</option></select></label><button className="report-download" type="button" disabled={reportPending || !group} onClick={() => downloadReport()}>{reportPending ? t('생성 중...', 'Generating...') : t('PDF 리포트 생성', 'Generate PDF report')}</button><AiWeeklyReportAction groupId={groupId} group={group} selection={{ scope: reportScope, period: reportPeriod, from: reportRange(year, month, week, reportPeriod, language).from }} /></div>{group?.membershipPlan === 'FREE' && reportScope === 'GROUP' && <p className="report-policy">{t('무료 그룹의 전체 리포트는 주 2회까지 생성할 수 있습니다. 내 업무 리포트는 제한 없이 제공됩니다.', 'Free groups can generate two group reports per week. Personal reports are unlimited.')}</p>}{reportMessage && <p className={reportMessage.includes('더 생성') || reportMessage.includes('more group reports') ? 'success-message' : 'error'}>{reportMessage}</p>}<ReportSummary dashboard={dashboard} /></section>
-  </>}
+      <section className="dashboard-panel weekly-report-preview"><div className="dashboard-panel-title inline"><div><span className="page-eyebrow">REPORTS</span><h2>{t('업무 리포트', 'Task reports')}</h2><p>{t('서버가 확정 업무 데이터로 AI 없이 한글·영문 리포트를 생성합니다.', 'The server generates Korean and English reports from confirmed task data without AI.')}</p></div><span className={`membership-badge ${group?.membershipPlan.toLowerCase() ?? 'free'}`}>{group?.membershipPlan === 'PAID' ? t('구독 이용', 'Subscribed') : t('무료 그룹', 'Free group')}</span></div><div className="report-controls"><label><span>{t('범위', 'Scope')}</span><select value={reportScope} onChange={(event) => setReportScope(event.target.value as ReportScope)}><option value="MY">{t('내 업무', 'My tasks')}</option>{group?.role === 'LEADER' && <option value="GROUP">{t('그룹 전체', 'Whole group')}</option>}</select></label><label><span>{t('기간', 'Period')}</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as ReportPeriod)}><option value="WEEKLY">{t('주간', 'Weekly')}</option><option value="MONTHLY">{t('월간', 'Monthly')}</option><option value="YEARLY">{t('연간', 'Yearly')}</option></select></label>{reportScope === 'GROUP' ? <div className="report-language-actions"><button className="report-download" type="button" disabled={reportPending || !group} onClick={() => downloadReport('GROUP', reportPeriod, 'KO')}>{reportPending ? t('생성 중...', 'Generating...') : '한국어 다운로드'}</button><button className="secondary" type="button" disabled={reportPending || !group} onClick={() => downloadReport('GROUP', reportPeriod, 'EN')}>English download</button></div> : <button className="report-download" type="button" disabled={reportPending || !group} onClick={() => downloadReport()}>{reportPending ? t('생성 중...', 'Generating...') : t('내 리포트 생성', 'Generate my report')}</button>}</div><p className="report-policy">{t('그룹 전체 문서는 서버에서 HTML로 내려받아 브라우저에서 PDF로 저장할 수 있습니다. 자동 메일 일정은 그룹 설정에서 관리합니다.', 'Group documents download as print-ready HTML and can be saved as PDF in the browser. Manage email schedules in group settings.')}</p>{reportMessage && <p className={reportMessage.includes('생성') || reportMessage.includes('generated') ? 'success-message' : 'error'}>{reportMessage}</p>}<ReportSummary dashboard={dashboard} /></section>
+    </>}
     {showCreate && <Modal title={t('새 업무 만들기', 'Create a task')} description={t(`${dashboard?.groupName ?? '그룹'} 대시보드에서 바로 업무를 추가합니다.`, `Add a task directly from the ${dashboard?.groupName ?? 'group'} dashboard.`)} onClose={() => !saving && setShowCreate(false)}><form className="form modal-form" onSubmit={createTask}>
       <label className="field"><span>{t('제목', 'Title')}</span><input autoFocus required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t('예: 발표 자료 초안 작성', 'e.g. Draft presentation slides')} /></label>
       <label className="field"><span>{t('설명 (선택)', 'Description (optional)')}</span><textarea maxLength={5000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
@@ -128,12 +149,53 @@ function monthName(month: number) { return new Intl.DateTimeFormat('en-US', { mo
 function reportRange(year: number, month: number, week: number, period: ReportPeriod, language: 'ko' | 'en') {
   if (period === 'YEARLY') return { from: `${year}-01-01`, to: `${year + 1}-01-01`, label: language === 'ko' ? `${year}년 연간` : `${year} Yearly` };
   if (period === 'MONTHLY') return { ...periodRange(year, month, 0), label: language === 'ko' ? `${year}년 ${month}월` : `${monthName(month)} ${year}` };
-  const from = week
-    ? new Date(year, month - 1, (week - 1) * 7 + 1)
-    : new Date(`${lastCompletedWeekStart()}T00:00:00`);
-  if (week) from.setDate(from.getDate() - ((from.getDay() + 6) % 7));
-  const to = new Date(from);
-  to.setDate(to.getDate() + 7);
-  const dateRangeLabel = `${dateText(from)} ~ ${dateText(new Date(to.getFullYear(), to.getMonth(), to.getDate() - 1))}`;
-  return { from: dateText(from), to: dateText(to), label: dateRangeLabel };
+  const current = new Date();
+  const selectedWeek = week || (current.getFullYear() === year && current.getMonth() + 1 === month
+    ? Math.ceil(current.getDate() / 7) : 1);
+  return { ...periodRange(year, month, selectedWeek), label: language === 'ko' ? `${year}년 ${month}월 ${selectedWeek}주차` : `${monthName(month)} ${year} · Week ${selectedWeek}` };
 }
+function printReport(groupName: string, label: string, tasks: DashboardTask[], scope: ReportScope, period: ReportPeriod, report: Window, language: 'ko' | 'en') {
+  const tx = (ko: string, en: string) => language === 'ko' ? ko : en;
+  const rows = tasks.map((task) => {
+    const status = taskStatusLabels[task.status]?.[language === 'ko' ? 0 : 1] ?? task.status;
+    const statusClass = task.status.toLowerCase().replaceAll('_', '-');
+    return `<tr><td><strong class="task-title">${escapeHtml(task.title)}</strong></td><td><span class="status status-${statusClass}">${escapeHtml(status)}</span></td><td>${escapeHtml(task.assigneeNickname ?? tx('미지정', 'Unassigned'))}</td><td class="due">${task.dueAt?.slice(0, 16).replace('T', ' ') ?? '-'}</td></tr>`;
+  }).join('');
+  const completed = tasks.filter((task) => task.status === 'COMPLETED').length;
+  const active = tasks.filter((task) => task.status === 'IN_PROGRESS' || task.status === 'ON_HOLD').length;
+  const delayed = tasks.filter((task) => task.delayed).length;
+  const completionRate = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
+  const periodName = language === 'ko' ? { WEEKLY: '주간', MONTHLY: '월간', YEARLY: '연간' }[period] : { WEEKLY: 'Weekly', MONTHLY: 'Monthly', YEARLY: 'Yearly' }[period];
+  const generatedAt = new Date().toLocaleString(language === 'ko' ? 'ko-KR' : 'en-US');
+  const insights = [
+    tasks.length === 0
+      ? tx('선택한 기간에 담당 업무가 없어 별도의 추세를 판단하지 않았습니다.', 'There are no assigned tasks in this period, so no trend was inferred.')
+      : tx(`선택 기간의 담당 업무 ${tasks.length}건 중 ${completed}건을 완료했습니다.`, `${completed} of ${tasks.length} assigned tasks were completed in the selected period.`),
+    delayed > 0
+      ? tx(`지연 업무 ${delayed}건의 마감일과 진행 상태를 먼저 확인해 주세요.`, `Review the due dates and progress of ${delayed} overdue task(s) first.`)
+      : tx('현재 확인된 지연 업무가 없습니다.', 'There are currently no confirmed overdue tasks.'),
+  ].map((text) => `<li>${escapeHtml(text)}</li>`).join('');
+  report.document.open();
+  report.document.write(`<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(groupName)} ${escapeHtml(label)} ${tx('리포트', 'Report')}</title><style>
+  @page{size:A4;margin:12mm}*{box-sizing:border-box}body{margin:0;background:#f3f1ec;color:#292731;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",Arial,sans-serif;line-height:1.55}
+  .toolbar{display:flex;justify-content:flex-end;width:min(920px,calc(100% - 32px));margin:18px auto 0}.print-button{padding:10px 15px;border:0;border-radius:11px;color:#fff;background:#6557b4;font:inherit;font-size:12px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(85,69,160,.2)}
+  .report{width:min(920px,calc(100% - 32px));margin:12px auto 28px;background:#fff;border:1px solid #e7e3dc;border-radius:24px;box-shadow:0 18px 55px rgba(52,45,70,.09);overflow:hidden}
+  header{position:relative;padding:30px 34px 32px;background:linear-gradient(135deg,#fff 0%,#f5f1ff 58%,#eee9ff 100%);border-bottom:1px solid #e6e0f3;overflow:hidden}header:after{content:"";position:absolute;right:-54px;top:-84px;width:220px;height:220px;border:42px solid rgba(103,84,176,.08);border-radius:50%}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:30px;color:#5e55b7;font-size:12px;font-weight:800;letter-spacing:.13em}.brand-mark{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:10px;color:#fff;background:#6657bd;font-size:15px;letter-spacing:0}
+  .eyebrow{margin:0 0 8px;color:#746a90;font-size:11px;font-weight:800;letter-spacing:.14em}.hero-title{max-width:650px;margin:0;color:#292333;font-size:31px;line-height:1.28;letter-spacing:-.035em}.meta{display:flex;flex-wrap:wrap;gap:7px 15px;margin-top:14px;color:#726d79;font-size:13px}.meta span{display:inline-flex;align-items:center;gap:6px}.meta span:before{content:"";width:5px;height:5px;border-radius:50%;background:#8b7bd2}
+  main{padding:30px 34px 34px}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric{min-height:112px;padding:17px;border:1px solid #e8e4ee;border-radius:16px;background:#fcfbfd}.metric small{display:block;margin-bottom:10px;color:#7d7785;font-size:11px;font-weight:700}.metric strong{display:block;color:#302b39;font-size:27px;line-height:1}.metric.risk{background:#fff9f7;border-color:#f1ded7}.metric.risk strong{color:#c15b44}
+  .progress-card{margin-top:12px;padding:15px 17px;border-radius:14px;background:#f7f5fa}.progress-head{display:flex;justify-content:space-between;gap:16px;color:#686272;font-size:12px}.progress-head strong{color:#4f466b;font-size:13px}.bar{height:7px;margin-top:10px;border-radius:99px;background:#e4dfee;overflow:hidden}.bar span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#6958bd,#8d7bd5)}
+  .section{margin-top:29px}.section-heading{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:12px}.section-heading h2{margin:0;color:#332e3c;font-size:18px;letter-spacing:-.02em}.section-heading p{margin:0;color:#8a8490;font-size:11px}.summary{padding:18px 20px;border:1px solid #e6e0f2;border-radius:16px;background:#faf8ff}.summary ol{display:grid;gap:10px;margin:0;padding:0;list-style:none;counter-reset:item}.summary li{position:relative;padding-left:31px;color:#5f5967;font-size:13px}.summary li:before{counter-increment:item;content:counter(item);position:absolute;left:0;top:0;display:grid;place-items:center;width:21px;height:21px;border-radius:7px;color:#6658ad;background:#ece7fb;font-size:10px;font-weight:800}
+  .table-wrap{border:1px solid #e8e4ea;border-radius:16px;overflow:hidden}table{width:100%;border-collapse:collapse;font-size:12px}th{padding:11px 13px;color:#756f7d;background:#f7f5f8;font-size:10px;letter-spacing:.04em;text-align:left}td{padding:12px 13px;border-top:1px solid #eeeaf0;color:#625d68;text-align:left;vertical-align:middle}.task-title{color:#35303c}.due{white-space:nowrap}.status{display:inline-flex;padding:4px 8px;border-radius:99px;color:#5f5869;background:#eeeaf2;font-size:10px;font-weight:750;white-space:nowrap}.status-completed{color:#32735b;background:#e5f4ec}.status-in-progress{color:#3f63a6;background:#e7eefb}.status-requested{color:#8a681c;background:#fff2ce}.status-on-hold{color:#8b5f31;background:#f7eadb}.status-rejected,.status-cancelled{color:#9d514d;background:#f9e8e6}.empty{padding:34px;text-align:center;color:#918b96}
+  footer{display:flex;justify-content:space-between;gap:18px;margin-top:26px;padding-top:18px;border-top:1px solid #ece8ee;color:#8a8490;font-size:10px}footer strong{color:#655c73;white-space:nowrap}
+  @media print{body{background:#fff}.no-print{display:none}.report{width:100%;margin:0;border:0;border-radius:0;box-shadow:none}header{padding:24px 26px}main{padding:24px 26px}.section,.table-wrap,tr{break-inside:avoid}thead{display:table-header-group}}
+  @media(max-width:700px){.report{width:100%;margin:0;border:0;border-radius:0}.toolbar{width:calc(100% - 32px)}.metrics{grid-template-columns:repeat(2,1fr)}header,main{padding:24px 20px}.hero-title{font-size:25px}.table-wrap{overflow-x:auto}table{min-width:620px}footer{flex-direction:column}}
+  </style></head><body><div class="toolbar no-print"><button class="print-button" onclick="window.print()">${tx('PDF로 저장 / 인쇄', 'Save as PDF / Print')}</button></div><article class="report"><header><div class="brand"><span class="brand-mark">✓</span> TOESA · 퇴사</div><p class="eyebrow">BASIC WORK REPORT</p><h1 class="hero-title">${escapeHtml(groupName)} ${scope === 'MY' ? tx('내 업무 ', 'My Tasks ') : ''}${periodName} ${tx('리포트', 'Report')}</h1><div class="meta"><span>${escapeHtml(label)}</span><span>${tx('생성', 'Generated')} ${escapeHtml(generatedAt)}</span></div></header><main>
+  <section class="metrics"><div class="metric"><small>${tx('기간 업무', 'Period tasks')}</small><strong>${tasks.length}</strong></div><div class="metric"><small>${tx('완료', 'Completed')}</small><strong>${completed}</strong></div><div class="metric"><small>${tx('진행·보류', 'Active · On hold')}</small><strong>${active}</strong></div><div class="metric risk"><small>${tx('지연 업무', 'Overdue tasks')}</small><strong>${delayed}</strong></div></section>
+  <section class="progress-card"><div class="progress-head"><span>${tx('업무 완료율', 'Task completion')}</span><strong>${tasks.length ? `${completionRate}%` : '-'}</strong></div><div class="bar"><span style="width:${completionRate}%"></span></div></section>
+  <section class="section"><div class="section-heading"><h2>${tx('이번 기간 한눈에 보기', 'Period at a glance')}</h2><p>${tx('확정된 업무 데이터 기준', 'Based on confirmed task data')}</p></div><div class="summary"><ol>${insights}</ol></div></section>
+  <section class="section"><div class="section-heading"><h2>${tx('업무 상세', 'Task details')}</h2><p>${tx(`${tasks.length}건`, `${tasks.length} tasks`)}</p></div><div class="table-wrap"><table><thead><tr><th>${tx('업무', 'Task')}</th><th>${tx('상태', 'Status')}</th><th>${tx('담당자', 'Assignee')}</th><th>${tx('마감', 'Due')}</th></tr></thead><tbody>${rows || `<tr><td class="empty" colspan="4">${tx('해당 기간에 등록된 업무가 없습니다.', 'No tasks were recorded in this period.')}</td></tr>`}</tbody></table></div></section>
+  <footer><span>${tx('이 기본 리포트는 퇴사에 저장된 확정 업무 데이터로 생성되며 AI 추론을 사용하지 않습니다.', 'This core report uses confirmed task data stored in toesa and does not use AI inference.')}</span><strong>TOESA · WORK SMARTER, LEAVE ON TIME</strong></footer>
+  </main></article></body></html>`); report.document.close(); report.focus(); setTimeout(() => report.print(), 300);
+}
+function escapeHtml(value: string) { return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] ?? character); }

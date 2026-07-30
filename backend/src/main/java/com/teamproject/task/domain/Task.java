@@ -73,6 +73,11 @@ public class Task {
                 && status != Status.COMPLETED && status != Status.REJECTED && status != Status.CANCELLED;
     }
 
+    public boolean isCalendarDeadlineVisible(LocalDateTime now, long rejectedRetentionHours) {
+        return status != Status.REJECTED
+                || updatedAt.isAfter(now.minusHours(Math.max(0, rejectedRetentionHours)));
+    }
+
     public void accept(GroupMember approver) {
         this.approver = approver;
         changeStatus(Status.TODO);

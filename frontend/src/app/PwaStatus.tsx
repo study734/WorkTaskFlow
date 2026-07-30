@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { activatePwaUpdate, isPwaInstallAvailable, isPwaUpdateAvailable, promptPwaInstall } from './pwa';
 import { useLanguage } from './LanguageContext';
+import { sessionMode } from '../api/client';
 
 export function PwaStatus() {
   const { t } = useLanguage();
@@ -30,7 +31,11 @@ export function PwaStatus() {
     };
   }, []);
 
-  if (pathname === '/' || (online && !installable && !updateAvailable)) return null;
+  const corePath = pathname === '/app' || pathname.startsWith('/groups')
+    || pathname.startsWith('/tasks') || pathname === '/calendar'
+    || pathname === '/notifications' || pathname === '/profile'
+    || pathname === '/account' || pathname === '/payments';
+  if (!corePath || sessionMode.isDemo() || (online && !installable && !updateAvailable)) return null;
   return <aside className={`pwa-status ${online ? '' : 'offline'}`} role="status" aria-live="polite">
     <span>{!online
       ? t('오프라인입니다. 저장된 화면만 볼 수 있으며 조회·변경은 연결 후 가능합니다.', 'You are offline. Reconnect to view or update current data.')

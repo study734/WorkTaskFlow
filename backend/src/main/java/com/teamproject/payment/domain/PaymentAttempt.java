@@ -50,6 +50,7 @@ public class PaymentAttempt {
     public String getProviderMessage() { return providerMessage; }
     public int getRetryCount() { return retryCount; }
     public LocalDateTime getCreatedAt() { return createdAt; }
-    public enum OperationType { BILLING_KEY_ISSUE, TEST_CHARGE }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public enum OperationType { BILLING_KEY_ISSUE, TEST_CHARGE, SUBSCRIPTION_CHARGE }
     public enum Status { PENDING, SUCCESS, FAILED }
 }

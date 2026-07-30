@@ -110,6 +110,28 @@ public class NotificationService {
         }
     }
 
+    @Transactional
+    public void newDeviceLogin(User user, String deviceName, String eventKey) {
+        createSecurity(user, Notification.Type.SECURITY_NEW_DEVICE, eventKey,
+                "새 기기 로그인", deviceName + "에서 새 로그인이 확인되었습니다.");
+    }
+
+    @Transactional
+    public void refreshTokenReused(User user, String deviceName, String eventKey) {
+        createSecurity(user, Notification.Type.SECURITY_SESSION_REUSED, eventKey,
+                "의심스러운 세션 차단", deviceName + "의 이전 로그인 토큰이 재사용되어 해당 기기 세션을 차단했습니다.");
+    }
+
+    @Transactional
+    public void subscriptionRollout(User user, com.teamproject.group.domain.Group group,
+            String eventKey, LocalDateTime deadline) {
+        if (notifications.existsByRecipientIdAndEventKey(user.getId(), eventKey)) return;
+        notifications.save(new Notification(user, null, group, null, null,
+                Notification.Type.SUBSCRIPTION_ROLLOUT_NOTICE, eventKey,
+                "유료 구독 전환 사전 안내",
+                deadline.toLocalDate() + "까지 무료 유지 또는 유료 구독 전환 여부를 선택해 주세요."));
+    }
+
     @Transactional(readOnly = true)
     public NotificationPageResponse list(Long userId, Long cursor, int requestedSize) {
         int size = Math.min(Math.max(requestedSize, 1), 50);
@@ -168,6 +190,13 @@ public class NotificationService {
                 .map(recipient -> new Notification(
                         recipient, actor, task.getGroup(), task, comment, type, eventKey, title, message))
                 .toList());
+    }
+
+    private void createSecurity(User recipient, Notification.Type type, String eventKey,
+            String title, String message) {
+        if (!notifications.existsByRecipientIdAndEventKey(recipient.getId(), eventKey)) {
+            notifications.save(Notification.security(recipient, type, eventKey, title, message));
+        }
     }
 
     private NotificationResponse response(Notification value) {

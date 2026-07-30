@@ -97,19 +97,21 @@ export function TasksPage() {
       <section className="task-list-card">
         <h2>{t('업무 목록', 'Task list')} <small>{tasks.length}</small></h2>
         {tasks.length === 0 && <p className="empty-state">{t('첫 업무를 등록해 보세요.', 'Create your first task.')}</p>}
-        <div className="task-list">{sortedTasks.map((task) => <Link className="task-item" to={`/tasks/${task.id}`} key={task.id}>
-          <div className="task-item-top"><span className={`task-status status-${task.status.toLowerCase()}`}>{label(statusLabels[task.status])}</span><span className={`task-priority priority-${task.priority.toLowerCase()}`}>{label(priorityLabels[task.priority])}</span>{task.delayed && <span className="task-delayed">{t('지연', 'Overdue')}</span>}</div>
-          <strong>{task.title}</strong>
-          <p>{task.description || t('설명 없음', 'No description')}</p>
-          <div className="task-date-row"><span><b>{t('등록', 'Created')}</b>{formatDate(task.createdAt, language)}</span><span className={task.delayed ? 'overdue' : ''}><b>{t('마감', 'Due')}</b>{task.dueAt ? formatDate(task.dueAt, language) : t('미정', 'Not set')}</span></div>
-          <div className="task-item-actions"><small>{t('업무 상세 보기', 'View task details')} →</small>
+        <div className="task-list">{sortedTasks.map((task) => <article className="task-item" key={task.id}>
+          <Link className="task-item-main" to={`/tasks/${task.id}`}>
+            <div className="task-item-top"><span className={`task-status status-${task.status.toLowerCase()}`}>{label(statusLabels[task.status])}</span><span className={`task-priority priority-${task.priority.toLowerCase()}`}>{label(priorityLabels[task.priority])}</span>{task.delayed && <span className="task-delayed">{t('지연', 'Overdue')}</span>}</div>
+            <strong>{task.title}</strong>
+            <p>{task.description || t('설명 없음', 'No description')}</p>
+            <div className="task-date-row"><span><b>{t('등록', 'Created')}</b>{formatDate(task.createdAt, language)}</span><span className={task.delayed ? 'overdue' : ''}><b>{t('마감', 'Due')}</b>{task.dueAt ? formatDate(task.dueAt, language) : t('미정', 'Not set')}</span></div>
+          </Link>
+          <div className="task-item-actions"><Link to={`/tasks/${task.id}`}>{t('업무 상세 보기', 'View task details')} →</Link>
             {task.status === 'TODO' && !task.assigneeMemberId && group?.type === 'TEAM' &&
               <button type="button" className="task-claim-button" disabled={claimingId === task.id}
                 onClick={(event) => claim(event, task)}>
                 {claimingId === task.id ? t('선택 중...', 'Claiming...') : t('내가 담당하기', 'Assign to me')}
               </button>}
           </div>
-        </Link>)}</div>
+        </article>)}</div>
       </section>
       {showCreate && <Modal title={t('새 업무 만들기', 'Create a task')} description={t(`${group?.name ?? '그룹'}에 새로운 업무를 추가합니다.`, `Add a new task to ${group?.name ?? 'this group'}.`)} onClose={() => setShowCreate(false)}><form className="form modal-form" onSubmit={create}>
         <label className="field"><span>{t('제목', 'Title')}</span><input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t('예: 발표 자료 초안 작성', 'e.g. Draft presentation slides')} /></label>

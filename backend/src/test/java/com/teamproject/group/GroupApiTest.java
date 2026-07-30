@@ -104,6 +104,35 @@ class GroupApiTest {
     }
 
     @Test
+    void leaderCanSwitchPaidTestPeriodWithoutPaymentAndReturnToFree() throws Exception {
+        String token = signupAndLogin("plan_owner", "plan-owner@example.com");
+        var created = mvc.perform(post("/api/v1/groups").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"플랜 테스트 팀\"}"))
+                .andExpect(status().isCreated()).andReturn();
+        long groupId = ((Number) com.jayway.jsonpath.JsonPath.read(
+                created.getResponse().getContentAsString(), "$.id")).longValue();
+
+        mvc.perform(put("/api/v1/groups/{groupId}/membership/test-plan", groupId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"plan\":\"PAID\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipPlan").value("PAID"))
+                .andExpect(jsonPath("$.paidStartedAt").isString())
+                .andExpect(jsonPath("$.paidUntil").isString())
+                .andExpect(jsonPath("$.nextBillingAt").isString())
+                .andExpect(jsonPath("$.testPlanSwitchEnabled").value(true));
+
+        mvc.perform(put("/api/v1/groups/{groupId}/membership/test-plan", groupId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"plan\":\"FREE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipPlan").value("FREE"))
+                .andExpect(jsonPath("$.paidStartedAt").doesNotExist())
+                .andExpect(jsonPath("$.paidUntil").doesNotExist())
+                .andExpect(jsonPath("$.nextBillingAt").doesNotExist());
+    }
+
+    @Test
     void leaderCanRotateDeleteAndCreateJoinCode() throws Exception {
         String token = signupAndLogin("key_owner", "key-owner@example.com");
         var created = mvc.perform(post("/api/v1/groups").header("Authorization", "Bearer " + token)

@@ -56,6 +56,10 @@ public class Notification {
         this.createdAt = LocalDateTime.now();
     }
 
+    public static Notification security(User recipient, Type type, String eventKey, String title, String message) {
+        return new Notification(recipient, null, null, null, null, type, eventKey, title, message);
+    }
+
     public void read() { if (readAt == null) readAt = LocalDateTime.now(); }
     public Long getId() { return id; }
     public User getRecipient() { return recipient; }
@@ -71,6 +75,7 @@ public class Notification {
 
     public enum Type {
         TASK_REQUESTED, TASK_ASSIGNED, TASK_STATUS_CHANGED, TASK_DUE_SOON,
-        COMMENT_CREATED, COMMENT_MENTIONED
+        COMMENT_CREATED, COMMENT_MENTIONED, SECURITY_NEW_DEVICE, SECURITY_SESSION_REUSED,
+        SUBSCRIPTION_ROLLOUT_NOTICE
     }
 }

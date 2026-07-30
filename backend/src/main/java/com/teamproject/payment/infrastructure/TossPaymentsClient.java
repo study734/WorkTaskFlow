@@ -43,9 +43,14 @@ public class TossPaymentsClient {
 
     public ApiResult testCharge(String billingKey, String customerKey, long amount, String orderId,
             String idempotencyKey) {
+        return charge(billingKey, customerKey, amount, orderId, "퇴사 연동 테스트", idempotencyKey);
+    }
+
+    public ApiResult charge(String billingKey, String customerKey, long amount, String orderId,
+            String orderName, String idempotencyKey) {
         return post("/v1/billing/" + billingKey, Map.of(
                 "customerKey", customerKey, "amount", amount, "orderId", orderId,
-                "orderName", "ToTaskFlow 연동 테스트"), idempotencyKey);
+                "orderName", orderName), idempotencyKey);
     }
 
     private ApiResult post(String path, Object body, String idempotencyKey) {

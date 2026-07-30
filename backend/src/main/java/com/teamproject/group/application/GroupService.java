@@ -22,6 +22,8 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.beans.factory.annotation.Value;
+import java.time.LocalDateTime;
 
 @Service
 public class GroupService {
@@ -34,15 +36,18 @@ public class GroupService {
     private final GroupAuthorization authorization;
     private final HashService hashes;
     private final ImageStorageService images;
+    private final boolean testPlanSwitchEnabled;
 
     public GroupService(UserRepository users, GroupRepository groups, GroupMemberRepository members,
-            GroupAuthorization authorization, HashService hashes, ImageStorageService images) {
+            GroupAuthorization authorization, HashService hashes, ImageStorageService images,
+            @Value("${app.membership.test-switch-enabled:false}") boolean testPlanSwitchEnabled) {
         this.users = users;
         this.groups = groups;
         this.members = members;
         this.authorization = authorization;
         this.hashes = hashes;
         this.images = images;
+        this.testPlanSwitchEnabled = testPlanSwitchEnabled;
     }
 
     @Transactional
@@ -52,6 +57,26 @@ public class GroupService {
         member.getGroup().updateImage(images.store(file, "groups"));
         groups.flush();
         images.deleteManagedAfterCommit(previous);
+        return response(member);
+    }
+
+    @Transactional
+    public GroupResponse switchTestMembership(Long userId, Long groupId, String rawPlan) {
+        if (!testPlanSwitchEnabled) {
+            throw new ApplicationException("TEST_MEMBERSHIP_SWITCH_DISABLED", HttpStatus.FORBIDDEN,
+                    "현재 환경에서는 테스트 멤버십 전환을 사용할 수 없습니다.");
+        }
+        GroupMember member = requireTeamLeader(groupId, userId);
+        Group.MembershipPlan plan;
+        try {
+            plan = Group.MembershipPlan.valueOf(rawPlan.trim().toUpperCase());
+        } catch (RuntimeException exception) {
+            throw new ApplicationException("MEMBERSHIP_PLAN_INVALID", HttpStatus.BAD_REQUEST,
+                    "올바른 그룹 멤버십을 선택해 주세요.");
+        }
+        member.getGroup().switchTestMembership(plan, LocalDateTime.now());
+        securityLog.info("event=GROUP_TEST_PLAN_CHANGED outcome=SUCCESS actorUserId={} groupId={} plan={}",
+                userId, groupId, plan);
         return response(member);
     }
 
@@ -210,6 +235,7 @@ public class GroupService {
                 group.getTimezone(), group.getDashboardVisibility().name(), group.getMembershipPlan().name(),
                 group.getJoinCodeHash() != null,
                 member.getRole() == GroupMember.Role.LEADER ? newlyIssuedJoinCode : null, member.getId(),
-                member.getRole().name(), group.getCreatedAt(), group.getUpdatedAt());
+                member.getRole().name(), group.getPaidStartedAt(), group.getPaidUntil(),
+                group.getNextBillingAt(), testPlanSwitchEnabled, group.getCreatedAt(), group.getUpdatedAt());
     }
 }

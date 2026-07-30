@@ -1,0 +1,122 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  init-uploads:
+    image: busybox:1.37
+    restart: "no"
+    command: ["sh", "-c", "chown -R 10001:10001 /uploads"]
+    volumes:
+      - uploads:/uploads
+    logging: *default-logging
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: totaskflow
+      MYSQL_USER: totaskflow
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?MYSQL_APP_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      TZ: Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=50
+      - --skip-name-resolve
+    volumes:
+      - mysql-data:/var/lib/mysql
+    secrets:
+      - mysql_root_password
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}
+    restart: unless-stopped
+    env_file:
+      - ${RUNTIME_ENV_FILE:-runtime.env}
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx384m
+    expose:
+      - "8081"
+    volumes:
+      - uploads:/var/lib/totaskflow/uploads
+    networks:
+      - app
+    depends_on:
+      init-uploads:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8081/api/v1/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  web:
+    image: ${WEB_IMAGE:?WEB_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      BACKEND_NORMAL: backend:8081
+      BACKEND_ADMIN: backend:19092
+      DOMAIN_NAME: ${DOMAIN_NAME:?DOMAIN_NAME is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-active.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx-app-locations.conf:/etc/nginx/snippets/app-locations.conf:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-web:/var/www/certbot:ro
+    networks:
+      - app
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1"
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    stop_grace_period: 10s
+    logging: *default-logging
+
+  certbot:
+    image: certbot/certbot:v3.2.0
+    profiles: ["tools"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-web:/var/www/certbot
+    logging: *default-logging
+
+networks:
+  app:
+
+volumes:
+  mysql-data:
+  uploads:
+  letsencrypt:
+  certbot-web:
+
+secrets:
+  mysql_root_password:
+    file: ${MYSQL_ROOT_PASSWORD_FILE:-./mysql-root-password}

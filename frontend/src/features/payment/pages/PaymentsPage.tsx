@@ -22,6 +22,7 @@ export function PaymentsPage() {
   const [config, setConfig] = useState<PaymentConfig>();
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [attempts, setAttempts] = useState<PaymentAttempt[]>([]);
+  const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -51,7 +52,8 @@ export function PaymentsPage() {
           }
         }
       })
-      .catch((value) => setError(errorMessage(value)));
+      .catch((value) => setError(errorMessage(value)))
+      .finally(() => setLoading(false));
   }, []);
 
   async function addMethod() {
@@ -97,14 +99,16 @@ export function PaymentsPage() {
   }
 
   if (!accessToken.get()) return <Navigate to="/login?next=%2Fpayments" replace />;
+  const activeMethods = methods.filter((method) => method.status === 'ACTIVE');
   return <><AppNavigation /><main className="payments-page app-page">
     <header><span className="page-eyebrow">PAYMENTS</span><h1>{t('결제수단 및 테스트', 'Payment methods & tests')}</h1><p>{t('카드 정보는 토스페이먼츠가 처리하며 이 서비스에는 저장하지 않습니다.', 'Card details are handled by Toss Payments and are never stored in this service.')}</p></header>
-    {!config?.configured && <p className="payment-notice">{t('서버 결제 환경변수를 설정하면 기능이 활성화됩니다.', 'Configure the server payment environment variables to enable this feature.')}</p>}
+    {loading && <p className="payment-notice" role="status">{t('결제 정보를 불러오는 중...', 'Loading payment information...')}</p>}
+    {!loading && !config?.configured && <p className="payment-notice">{t('서버 결제 환경변수를 설정하면 기능이 활성화됩니다.', 'Configure the server payment environment variables to enable this feature.')}</p>}
     {error && <p className="error">{error}</p>}{message && <p className="success-message">{message}</p>}
     <section className="payment-panel"><div className="payment-heading"><div><h2>{t('등록된 결제수단', 'Payment methods')}</h2><small>{t('민감한 카드번호와 빌링키는 화면과 로그에 표시하지 않습니다.', 'Sensitive card numbers and billing keys are never shown or logged.')}</small></div><button className="primary" type="button" disabled={pending || !config?.configured} onClick={addMethod}>{t('결제수단 추가', 'Add payment method')}</button></div>
-      <div className="payment-method-list">{methods.filter((method) => method.status === 'ACTIVE').map((method) => <div className="payment-method-row" key={method.id}><div><strong>{method.maskedNumber || t('등록된 카드', 'Saved card')}</strong><small>{method.issuerCode || 'Toss Payments'} · {formatDate(method.createdAt, language)}</small></div>{config?.testMode && <button type="button" disabled={pending} onClick={() => testCharge(method.id)}>{t('100원 테스트', 'Test KRW 100')}</button>}</div>)}</div>
+      {!loading && activeMethods.length === 0 ? <p className="empty-state">{t('등록된 결제수단이 없습니다.', 'No payment methods have been added.')}</p> : <div className="payment-method-list">{activeMethods.map((method) => <div className="payment-method-row" key={method.id}><div><strong>{method.maskedNumber || t('등록된 카드', 'Saved card')}</strong><small>{method.issuerCode || 'Toss Payments'} · {formatDate(method.createdAt, language)}</small></div>{config?.testMode && <button type="button" disabled={pending} onClick={() => testCharge(method.id)}>{t('100원 테스트', 'Test KRW 100')}</button>}</div>)}</div>}
     </section>
-    <section className="payment-panel"><h2>{t('API 호출 로그', 'API call log')}</h2><div className="payment-log-list">{attempts.map((attempt) => <div className="payment-log-row" key={attempt.id}><div><strong>{attempt.operationType === 'TEST_CHARGE' ? t('테스트 결제', 'Test charge') : t('결제수단 등록', 'Payment method registration')}</strong><small>{formatDate(attempt.createdAt, language)} · {attempt.status}{attempt.providerCode ? ` · ${attempt.providerCode}` : ''}</small></div>{attempt.status === 'FAILED' && attempt.operationType === 'TEST_CHARGE' && attempt.retryCount < 3 && <button type="button" disabled={pending} onClick={() => retry(attempt.id)}>{t('재전송', 'Retry')}</button>}</div>)}</div></section>
+    <section className="payment-panel"><h2>{t('API 호출 로그', 'API call log')}</h2>{!loading && attempts.length === 0 ? <p className="empty-state">{t('아직 결제 API 호출 기록이 없습니다.', 'No payment API calls have been recorded yet.')}</p> : <div className="payment-log-list">{attempts.map((attempt) => <div className="payment-log-row" key={attempt.id}><div><strong>{attempt.operationType === 'TEST_CHARGE' ? t('테스트 결제', 'Test charge') : attempt.operationType === 'SUBSCRIPTION_CHARGE' ? t('구독 결제', 'Subscription charge') : t('결제수단 등록', 'Payment method registration')}</strong><small>{formatDate(attempt.createdAt, language)} · {attempt.status}{attempt.providerCode ? ` · ${attempt.providerCode}` : ''}</small></div>{attempt.status === 'FAILED' && attempt.operationType === 'TEST_CHARGE' && attempt.retryCount < 3 && <button type="button" disabled={pending} onClick={() => retry(attempt.id)}>{t('재전송', 'Retry')}</button>}</div>)}</div>}</section>
   </main></>;
 }
 

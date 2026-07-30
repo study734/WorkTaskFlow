@@ -29,8 +29,13 @@ public class SecurityAuditFilter extends OncePerRequestFilter {
         response.setHeader("X-Frame-Options", "DENY");
         response.setHeader("Referrer-Policy", "no-referrer");
         response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+        response.setHeader("Cross-Origin-Resource-Policy", "same-site");
+        if (request.isSecure()) {
+            response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+        }
         if (request.getRequestURI().startsWith("/api/")) {
             response.setHeader("Cache-Control", "no-store");
+            response.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
         }
         try {
             chain.doFilter(request, response);

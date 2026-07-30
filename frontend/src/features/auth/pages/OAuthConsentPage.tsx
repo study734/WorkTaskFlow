@@ -45,7 +45,7 @@ export function OAuthConsentPage() {
     setPending(true); setError('');
     try {
       const tokens = await authApi.completeOAuthSignup(consents);
-      accessToken.set(tokens.accessToken);
+      accessToken.set(tokens.accessToken, tokens.expiresIn);
       sessionMode.clear();
       navigate('/app', { replace: true });
     } catch (caught) {
@@ -61,22 +61,22 @@ export function OAuthConsentPage() {
   }
 
   return <AuthLayout title={t('Google 가입 동의', 'Complete Google sign-up')} description={t(
-    'Google에서 확인한 정보를 검토하고 ToTaskFlow 가입 동의를 선택해 주세요.',
-    'Review the Google account information and choose your ToTaskFlow consents.',
+    'Google에서 확인한 정보를 검토하고 퇴사 가입 동의를 선택해 주세요.',
+    'Review the Google account information and choose your toesa consents.',
   )}>
     {profile ? <form className="form" onSubmit={submit}>
       <section className="oauth-profile" aria-label={t('Google 제공 정보', 'Information from Google')}>
         <span>Google</span><strong>{profile.name}</strong><small>{profile.email}</small>
       </section>
       <p className="oauth-data-note">{t(
-        'ToTaskFlow는 Google 비밀번호와 Google 액세스·리프레시 토큰을 저장하지 않습니다. 인증에 필요한 Google 계정 식별자, 이메일, 이름만 전달받습니다.',
-        'ToTaskFlow does not store your Google password or Google access/refresh tokens. It receives only the Google account identifier, email, and name needed for authentication.',
+        '퇴사는 Google 비밀번호와 Google 액세스·리프레시 토큰을 저장하지 않습니다. 인증에 필요한 Google 계정 식별자, 이메일, 이름만 전달받습니다.',
+        'toesa does not store your Google password or Google access/refresh tokens. It receives only the Google account identifier, email, and name needed for authentication.',
       )}</p>
       <fieldset className="signup-consents"><legend>{t('약관 및 수신 설정', 'Terms and preferences')}</legend>
         <label className="consent-all"><input type="checkbox" checked={allAgreed} onChange={event => setAll(event.target.checked)} /><span><strong>{t('전체 동의', 'Agree to all')}</strong><small>{t('선택 항목은 거부해도 가입할 수 있습니다.', 'Optional choices are not required.')}</small></span></label>
         <div className="consent-divider" />
         <Consent checked={consents.termsAgreed} onChange={value => setConsent('termsAgreed', value)} label={t('[필수] 서비스 이용약관 동의', '[Required] Terms of service')} href="/terms">
-          {t('ToTaskFlow의 업무·그룹·알림 기능 이용 조건, 계정 관리, 금지 행위 및 서비스 책임 범위를 확인하고 동의합니다.', 'I accept the conditions for ToTaskFlow task, group, and notification features, account management, prohibited conduct, and service responsibilities.')}
+          {t('퇴사의 업무·그룹·알림 기능 이용 조건, 계정 관리, 금지 행위 및 서비스 책임 범위를 확인하고 동의합니다.', 'I accept the conditions for toesa task, group, and notification features, account management, prohibited conduct, and service responsibilities.')}
         </Consent>
         <Consent checked={consents.privacyAgreed} onChange={value => setConsent('privacyAgreed', value)} label={t('[필수] Google 가입 개인정보 수집·이용 동의', '[Required] Google sign-up data collection and use')} href="/privacy">
           {t('항목: Google 계정 식별자, 이메일, 이름 · 목적: 본인 식별, Google 로그인, 계정 생성 및 서비스 제공 · 기간: 회원 탈퇴 시까지(법령상 보존 예외) · 동의를 거부할 수 있으나 필수 정보이므로 Google 가입을 완료할 수 없습니다.', 'Items: Google account identifier, email, and name · Purpose: identity, Google sign-in, account creation, and service delivery · Retention: until account deletion, except where legally required · You may refuse, but Google sign-up cannot be completed without this required data.')}

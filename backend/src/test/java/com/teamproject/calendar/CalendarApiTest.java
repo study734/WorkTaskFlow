@@ -18,6 +18,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
+import jakarta.persistence.EntityManager;
+import java.time.LocalDateTime;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -34,6 +37,8 @@ class CalendarApiTest {
     @Autowired UserRepository users;
     @Autowired GroupRepository groups;
     @Autowired GroupMemberRepository members;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired EntityManager entityManager;
 
     @Test
     void personalEventCrudStoresUtcAndReturnsGroupLocalTime() throws Exception {
@@ -121,6 +126,33 @@ class CalendarApiTest {
     }
 
     @Test
+    void rejectedTaskDeadlineDisappearsAfterRetentionWindowButTaskRecordRemains() throws Exception {
+        Team team = team("rejected_deadline", "Asia/Seoul");
+        long taskId = createTask(team.memberToken(), team.groupId(), "반려 일정", "2026-08-05T18:00:00");
+        transition(team.ownerToken(), taskId, "REJECT", 0, "진행하지 않음");
+
+        mvc.perform(get("/api/v1/calendars/events").param("groupId", String.valueOf(team.groupId()))
+                        .param("from", "2026-08-01").param("to", "2026-09-01")
+                        .header("Authorization", bearer(team.ownerToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].sourceTaskId").value(taskId));
+
+        jdbc.update("update tasks set updated_at = ? where id = ?",
+                LocalDateTime.now().minusHours(25), taskId);
+        entityManager.clear();
+
+        mvc.perform(get("/api/v1/calendars/events").param("groupId", String.valueOf(team.groupId()))
+                        .param("from", "2026-08-01").param("to", "2026-09-01")
+                        .header("Authorization", bearer(team.ownerToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0));
+        mvc.perform(get("/api/v1/tasks/{taskId}", taskId)
+                        .header("Authorization", bearer(team.ownerToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+    }
+
+    @Test
     void unifiedCalendarIncludesEveryActiveGroupAndRangeOrVersionErrorsAreStable() throws Exception {
         Team team = team("unified", "Asia/Seoul");
         long personalGroupId = personalGroupId(team.ownerToken());
@@ -199,6 +231,14 @@ class CalendarApiTest {
                         .content("{\"title\":\"" + title + "\",\"dueAt\":\"" + dueAt + "\"}"))
                 .andExpect(status().isCreated()).andReturn();
         return number(result, "$.id");
+    }
+
+    private void transition(String token, long taskId, String action, long version, String reason) throws Exception {
+        mvc.perform(post("/api/v1/tasks/{taskId}/transitions", taskId)
+                        .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"" + action + "\",\"expectedVersion\":" + version
+                                + ",\"reason\":\"" + reason + "\"}"))
+                .andExpect(status().isOk());
     }
 
     private String eventJson(String type, String title, String startAt, String endAt) {

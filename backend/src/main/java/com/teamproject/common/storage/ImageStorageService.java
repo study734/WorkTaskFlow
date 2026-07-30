@@ -1,7 +1,7 @@
 package com.teamproject.common.storage;
 
 import com.teamproject.common.exception.ApplicationException;
-import org.springframework.beans.factory.annotation.Value;
+import com.teamproject.resource.storage.FileStorage;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -12,10 +12,6 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
@@ -24,12 +20,13 @@ import java.util.UUID;
 @Service
 public class ImageStorageService {
     private static final Set<String> ALLOWED_FORMATS = Set.of("jpeg", "jpg", "png", "gif");
+    private static final Set<String> ALLOWED_CATEGORIES = Set.of("profiles", "groups");
     private static final long MAX_BYTES = 5L * 1024 * 1024;
     private static final int MAX_DIMENSION = 4096;
-    private final Path root;
+    private final FileStorage storage;
 
-    public ImageStorageService(@Value("${app.storage.local-root:uploads}") String root) {
-        this.root = Path.of(root).toAbsolutePath().normalize();
+    public ImageStorageService(FileStorage storage) {
+        this.storage = storage;
     }
 
     public String store(MultipartFile file, String category) {
@@ -37,15 +34,14 @@ public class ImageStorageService {
             throw invalid("5MB 이하의 이미지 파일을 선택해 주세요.");
         }
         ImageInfo image = inspect(file);
-        String safeCategory = Set.of("profiles", "groups").contains(category) ? category : "images";
+        String safeCategory = ALLOWED_CATEGORIES.contains(category) ? category : "images";
         String extension = image.format().equals("jpeg") || image.format().equals("jpg") ? "jpg" : image.format();
-        Path directory = root.resolve(safeCategory).normalize();
-        Path target = directory.resolve(UUID.randomUUID() + "." + extension).normalize();
-        if (!target.startsWith(directory)) throw invalid("올바르지 않은 파일 이름입니다.");
-        try (InputStream input = file.getInputStream()) {
-            Files.createDirectories(directory);
-            Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-            return "/uploads/" + safeCategory + "/" + target.getFileName();
+        String filename = UUID.randomUUID() + "." + extension;
+        try {
+            String storageKey = key(safeCategory, filename);
+            storage.put(storageKey, file.getBytes(), "image/" + ("jpg".equals(extension) ? "jpeg" : extension));
+            deleteOnRollback(storageKey);
+            return "/uploads/" + safeCategory + "/" + filename;
         } catch (IOException exception) {
             throw new ApplicationException("IMAGE_STORAGE_FAILED", HttpStatus.INTERNAL_SERVER_ERROR,
                     "이미지를 저장하지 못했습니다.");
@@ -54,13 +50,9 @@ public class ImageStorageService {
 
     public void deleteManaged(String url) {
         if (url == null || !url.startsWith("/uploads/")) return;
-        Path target = root.resolve(url.substring("/uploads/".length())).normalize();
-        if (!target.startsWith(root)) return;
-        try {
-            Files.deleteIfExists(target);
-        } catch (IOException ignored) {
-            // Replacement remains successful; an operational cleanup job can remove an orphan later.
-        }
+        String[] parts = url.substring("/uploads/".length()).split("/", 2);
+        if (parts.length != 2 || !valid(parts[0], parts[1])) return;
+        storage.delete(key(parts[0], parts[1]));
     }
 
     public void deleteManagedAfterCommit(String url) {
@@ -72,6 +64,13 @@ public class ImageStorageService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() { deleteManaged(url); }
         });
+    }
+
+    public FileStorage.StoredFile load(String category, String filename) {
+        if (!valid(category, filename)) {
+            throw new ApplicationException("IMAGE_NOT_FOUND", HttpStatus.NOT_FOUND, "이미지를 찾을 수 없습니다.");
+        }
+        return storage.get(key(category, filename));
     }
 
     private ImageInfo inspect(MultipartFile file) {
@@ -100,6 +99,25 @@ public class ImageStorageService {
 
     private ApplicationException invalid(String message) {
         return new ApplicationException("IMAGE_INVALID", HttpStatus.BAD_REQUEST, message);
+    }
+
+    private boolean valid(String category, String filename) {
+        return ALLOWED_CATEGORIES.contains(category)
+                && filename.matches("[0-9a-fA-F-]{36}\\.(jpg|png|gif)");
+    }
+
+    private String key(String category, String filename) {
+        return category + "/" + filename;
+    }
+
+    private void deleteOnRollback(String storageKey) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) storage.delete(storageKey);
+            }
+        });
     }
 
     private record ImageInfo(String format) {}

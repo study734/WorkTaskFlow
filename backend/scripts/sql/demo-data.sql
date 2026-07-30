@@ -60,11 +60,11 @@ SET @viewer_user = (SELECT id FROM users WHERE username = 'demo_viewer');
 INSERT INTO work_groups (type, name, description, timezone, dashboard_visibility,
                          created_by, created_at, updated_at)
 VALUES
-  ('PERSONAL', '김팀장의 개인 공간', '개인 업무 시연 공간', 'Asia/Seoul', 'MEMBERS',
+  ('PERSONAL', '김팀장의 개인 일정', '개인 일정 시연', 'Asia/Seoul', 'MEMBERS',
    @leader_user, @now, @now),
-  ('PERSONAL', '이팀원의 개인 공간', NULL, 'Asia/Seoul', 'MEMBERS',
+  ('PERSONAL', '이팀원의 개인 일정', NULL, 'Asia/Seoul', 'MEMBERS',
    @member_user, @now, @now),
-  ('PERSONAL', '박팀원의 개인 공간', NULL, 'Asia/Seoul', 'MEMBERS',
+  ('PERSONAL', '박팀원의 개인 일정', NULL, 'Asia/Seoul', 'MEMBERS',
    @viewer_user, @now, @now),
   ('TEAM', '로컬 알파 시연팀', '발표와 로컬 기능 검증을 위한 재현 가능한 팀',
    'Asia/Seoul', 'MEMBERS', @leader_user, @now, @now);
@@ -118,7 +118,7 @@ VALUES
    'URGENT', 'TODO', NULL, DATE_SUB(@now, INTERVAL 2 DAY), NULL,
    NULL, NULL, DATE_SUB(@now, INTERVAL 6 DAY), DATE_SUB(@now, INTERVAL 2 DAY), 2),
   (@leader_personal_group, @leader_personal_member, @leader_personal_member, @leader_personal_member,
-   '개인 발표 리허설', '개인 공간 업무와 통합 캘린더를 시연합니다.',
+   '개인 발표 리허설', '개인 일정과 통합 캘린더를 시연합니다.',
    'LOW', 'TODO', NULL, DATE_ADD(@now, INTERVAL 5 DAY), NULL,
    NULL, NULL, DATE_SUB(@now, INTERVAL 1 DAY), DATE_SUB(@now, INTERVAL 1 DAY), 0);
 

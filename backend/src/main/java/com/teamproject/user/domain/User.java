@@ -39,6 +39,8 @@ public class User {
     private LocalDateTime withdrawnAt;
     @Column(length = 100, unique = true)
     private String paymentCustomerKey;
+    @Column(nullable = false)
+    private long authVersion;
 
     protected User() {}
 
@@ -64,6 +66,11 @@ public class User {
         touch();
     }
     public void suspend() { this.status = Status.SUSPENDED; touch(); }
+    public void activate() {
+        if (status == Status.WITHDRAWN) throw new IllegalStateException("Withdrawn users cannot be reactivated.");
+        this.status = Status.ACTIVE; touch();
+    }
+    public void invalidateSessions() { this.authVersion++; touch(); }
     public void ensurePaymentCustomerKey(String value) {
         if (this.paymentCustomerKey == null) {
             this.paymentCustomerKey = value;
@@ -103,6 +110,7 @@ public class User {
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
     public LocalDateTime getWithdrawnAt() { return withdrawnAt; }
     public String getPaymentCustomerKey() { return paymentCustomerKey; }
+    public long getAuthVersion() { return authVersion; }
 
     public enum SystemRole { USER, ADMIN }
     public enum Status { ACTIVE, SUSPENDED, WITHDRAWN }

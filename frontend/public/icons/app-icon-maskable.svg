@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="toesa">
+  <defs>
+    <linearGradient id="bg" x1="70" y1="48" x2="440" y2="466" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8175EA"/>
+      <stop offset="1" stop-color="#4F43B7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g fill="none" stroke="#fff" stroke-width="25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M177 111h142c43 0 76 33 76 76v143c0 43-33 76-76 76H177"/>
+    <path d="m207 190 34 34 67-78"/>
+    <path d="M111 312h197"/>
+    <path d="m262 266 46 46-46 46"/>
+  </g>
+</svg>

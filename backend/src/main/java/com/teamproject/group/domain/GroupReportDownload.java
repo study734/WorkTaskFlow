@@ -31,6 +31,12 @@ public class GroupReportDownload {
         this.createdAt = LocalDateTime.now();
     }
 
+    public Long getId() { return id; }
+    public Group getGroup() { return group; }
+    public GroupMember getRequestedBy() { return requestedBy; }
+    public Scope getScope() { return scope; }
+    public PeriodType getPeriodType() { return periodType; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
     public enum Scope { GROUP, MY }
     public enum PeriodType { WEEKLY, MONTHLY, YEARLY }
 }

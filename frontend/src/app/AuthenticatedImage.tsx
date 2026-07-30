@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { accessToken } from '../api/client';
+import { accessToken, refreshAccessToken } from '../api/client';
 
 export function AuthenticatedImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [objectUrl, setObjectUrl] = useState('');
@@ -9,18 +9,23 @@ export function AuthenticatedImage({ src, alt, className }: { src: string; alt: 
     let createdUrl = '';
     const resolved = new URL(src, window.location.origin);
     if (resolved.origin !== window.location.origin || !resolved.pathname.startsWith('/uploads/')) return;
-    const token = accessToken.get();
-    fetch(resolved.toString(), {
-      signal: controller.signal,
-      credentials: 'include',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }).then((response) => {
+    async function load(allowRefresh: boolean): Promise<void> {
+      const token = accessToken.get();
+      const response = await fetch(resolved.toString(), {
+        signal: controller.signal,
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (response.status === 401 && allowRefresh) {
+        await refreshAccessToken();
+        return load(false);
+      }
       if (!response.ok) throw new Error('image');
-      return response.blob();
-    }).then((blob) => {
+      const blob = await response.blob();
       createdUrl = URL.createObjectURL(blob);
       setObjectUrl(createdUrl);
-    }).catch(() => undefined);
+    }
+    load(true).catch(() => undefined);
     return () => {
       controller.abort();
       if (createdUrl) URL.revokeObjectURL(createdUrl);

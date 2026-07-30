@@ -27,7 +27,7 @@ export function SignupPage() {
       <label className="consent-all"><input type="checkbox" checked={allAgreed} onChange={(event) => setAll(event.target.checked)} /><span><strong>{t('전체 동의', 'Agree to all')}</strong><small>{t('선택 항목은 동의하지 않아도 가입할 수 있습니다.', 'Optional choices are not required to sign up.')}</small></span></label>
       <div className="consent-divider" />
       <Consent checked={consents.termsAgreed} onChange={(value) => setConsent('termsAgreed', value)} label={t('[필수] 서비스 이용약관 동의', '[Required] Terms of service')} href="/terms">
-        {t('ToTaskFlow의 업무·그룹·알림 기능 이용 조건, 계정 관리, 금지 행위 및 서비스 책임 범위를 확인하고 동의합니다.', 'I accept the conditions for ToTaskFlow task, group, and notification features, account management, prohibited conduct, and service responsibilities.')}
+        {t('퇴사의 업무·그룹·알림 기능 이용 조건, 계정 관리, 금지 행위 및 서비스 책임 범위를 확인하고 동의합니다.', 'I accept the conditions for toesa task, group, and notification features, account management, prohibited conduct, and service responsibilities.')}
       </Consent>
       <Consent checked={consents.privacyAgreed} onChange={(value) => setConsent('privacyAgreed', value)} label={t('[필수] 개인정보 수집·이용 동의', '[Required] Personal information collection and use')} href="/privacy">
         {t('항목: 이름, 아이디, 이메일, 비밀번호 해시 · 목적: 회원가입, 인증, 서비스 제공 · 기간: 탈퇴 시까지(법령상 보존 예외) · 동의를 거부할 수 있으나 필수 정보이므로 가입할 수 없습니다.', 'Items: name, username, email, password hash · Purpose: signup, authentication, service · Retention: until withdrawal, except where legally required · You may refuse, but an account cannot be created without this required information.')}

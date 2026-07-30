@@ -21,6 +21,8 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Locale;
+import com.teamproject.authentication.domain.token.RefreshToken.ClientMode;
+import com.teamproject.authentication.domain.token.SessionDevice;
 
 @Service
 public class OAuthLoginService {
@@ -49,11 +51,17 @@ public class OAuthLoginService {
 
     @Transactional
     public StartResult start(String provider, String subject, String rawEmail, String name, boolean emailVerified) {
+        return start(provider, subject, rawEmail, name, emailVerified, ClientMode.WEB, SessionDevice.unknown());
+    }
+
+    @Transactional
+    public StartResult start(String provider, String subject, String rawEmail, String name, boolean emailVerified,
+            ClientMode mode, SessionDevice device) {
         IssuedTokens existing = socialAccounts.findByProviderAndProviderSubject(provider, subject)
                 .map(SocialAccount::getUser)
                 .map(user -> {
                     user.recordLogin();
-                    return issuer.issue(user);
+                    return issuer.issue(user, mode, device);
                 })
                 .orElse(null);
         if (existing != null) return new StartResult(existing, null);
@@ -81,6 +89,11 @@ public class OAuthLoginService {
 
     @Transactional
     public IssuedTokens complete(String rawToken, SignupCompleteRequest request) {
+        return complete(rawToken, request, ClientMode.WEB, SessionDevice.unknown());
+    }
+
+    @Transactional
+    public IssuedTokens complete(String rawToken, SignupCompleteRequest request, ClientMode mode, SessionDevice device) {
         OAuthSignupRequest pending = findUsableLocked(rawToken);
         if (socialAccounts.findByProviderAndProviderSubject(
                 pending.getProvider(), pending.getProviderSubject()).isPresent()) {
@@ -99,7 +112,7 @@ public class OAuthLoginService {
         saveConsents(user, request);
         signupRequests.delete(pending);
         user.recordLogin();
-        return issuer.issue(user);
+        return issuer.issue(user, mode, device);
     }
 
     @Transactional

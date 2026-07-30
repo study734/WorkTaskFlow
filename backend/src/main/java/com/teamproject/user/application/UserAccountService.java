@@ -50,6 +50,7 @@ public class UserAccountService {
                     "현재 비밀번호와 다른 비밀번호를 입력해 주세요.");
         }
         user.changePassword(passwordEncoder.encode(request.newPassword()));
+        user.invalidateSessions();
         revokeAllRefreshTokens(userId);
     }
 

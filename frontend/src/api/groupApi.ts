@@ -13,6 +13,10 @@ export type GroupResponse = {
   joinCode?: string;
   memberId: number;
   role: 'LEADER' | 'MEMBER';
+  paidStartedAt?: string;
+  paidUntil?: string;
+  nextBillingAt?: string;
+  testPlanSwitchEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -102,6 +106,10 @@ export const groupApi = {
     body.append('file', file);
     return request<GroupResponse>(`/groups/${groupId}/image`, { method: 'POST', body }, true);
   },
+  switchTestPlan: (groupId: number, plan: 'FREE' | 'PAID') =>
+    request<GroupResponse>(`/groups/${groupId}/membership/test-plan`, {
+      method: 'PUT', body: JSON.stringify({ plan }),
+    }, true),
   createJoinCode: (groupId: number) => request<GroupResponse>(`/groups/${groupId}/join-code`, {
     method: 'POST',
   }, true),

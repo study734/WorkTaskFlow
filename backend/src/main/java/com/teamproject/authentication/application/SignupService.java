@@ -62,7 +62,7 @@ public class SignupService {
         String email = normalizeEmail(rawEmail);
         if (users.existsByEmailIgnoreCase(email)) throw conflict("EMAIL_EXISTS", "이미 가입된 이메일입니다.");
         String code = oneTimeTokens.issueCode(email);
-        mail.sendBestEffort(email, "[ToTaskFlow] 이메일 인증번호", "인증번호: " + code + "\n10분 안에 입력해 주세요.");
+        mail.sendBestEffort(email, "[퇴사] 이메일 인증번호", "인증번호: " + code + "\n10분 안에 입력해 주세요.");
     }
 
     @Transactional(readOnly = true)
