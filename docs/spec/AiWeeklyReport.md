@@ -56,10 +56,15 @@
 - **D6 설정**: 설정 키와 환경변수 이름은 **기존 `app.ai-report.*`와 기존
   환경변수를 그대로 유지한다.** 이번 교체에서 바꾸는 것은 SDK 버전과 실행
   정책(timeout 45초, maxRetries 1, `store(false)`)뿐이다.
-- **D7 다운로드**: **실제 PDF를 유지한다.** 기존 endpoint
-  `GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/pdf`와
-  `Content-Type: application/pdf`를 그대로 쓴다. HTML 다운로드로 후퇴하지
-  않는다.
+- **D7 다운로드 (2026-08-01 개정)**: **서버가 인쇄용 HTML을 내려주고 PDF 저장은
+  브라우저가 한다.** 정본 endpoint는
+  `GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/download`이고
+  `Content-Type: text/html`이다. 기본 리포트가 이미 쓰는 방식과 같다.
+
+  > 개정 사유: 서버 PDF 렌더러(openhtmltopdf)가 CSS 2.1까지만 이해해 flex와
+  > grid를 그리지 못한다. 목표 디자인은 거의 모든 구역이 grid라 그대로 옮길 수
+  > 없었다. 기존 `/pdf` endpoint는 회귀 테스트가 잡고 있어 남겨 두지만,
+  > 생성 응답과 조회 뷰의 `downloadUrl`은 `/download`를 가리킨다.
 
 ---
 
@@ -987,17 +992,22 @@ OpenAI를 호출하지 않는다.
 ## 9.3 다운로드
 
 ```http
-GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/pdf
+GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/download
 ```
 
-규칙 (D7 확정):
+규칙 (D7 2026-08-01 개정):
 
 - FINALIZED만 다운로드
 - 저장 revision 사용
 - OpenAI 재호출 금지
 - `Cache-Control: private, no-store`
-- Content-Type: `application/pdf`
-- 파일명: `ai-weekly-report-{from}-r{revision}.pdf`
+- Content-Type: `text/html`
+- 파일명: `toesa-ai-weekly-{groupId}-{from}-r{revision}-{ko|en}.html`
+- 문서 언어는 revision에 저장된 언어를 따른다. 요청 시점 화면 언어를 쓰면
+  EN 분석에 한국어 껍데기가 씌워진다.
+
+`GET .../{reportId}/pdf`는 회귀 테스트가 잡고 있어 남아 있지만 산출물 정본이
+아니다. 생성 응답과 조회 뷰의 `downloadUrl`은 `/download`를 가리킨다.
 - 기존 endpoint 경로 `/{reportId}/pdf`를 그대로 유지한다
 
 **실제 PDF를 유지한다.** 기존 구현의 OpenHTMLtoPDF 렌더러

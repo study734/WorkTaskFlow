@@ -106,7 +106,9 @@ public class AiWeeklyReportController {
         AiWeeklyReportRevision revision = result.revision();
         HttpStatus status = result.createdNew() ? HttpStatus.CREATED : HttpStatus.OK;
 
-        String downloadUrl = String.format("/api/v1/groups/%d/reports/ai-weekly/%d/pdf", groupId, revision.getId());
+        // 산출물은 인쇄용 HTML이다. PDF 저장은 브라우저가 한다. 여기서 /pdf를 알려 주면
+        // API를 따르는 쪽만 옛 경로를 받는다.
+        String downloadUrl = String.format("/api/v1/groups/%d/reports/ai-weekly/%d/download", groupId, revision.getId());
 
         GenerateReportResponse response = new GenerateReportResponse(
                 revision.getId(),

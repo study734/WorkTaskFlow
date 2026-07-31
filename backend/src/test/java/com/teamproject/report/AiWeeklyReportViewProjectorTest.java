@@ -83,7 +83,7 @@ class AiWeeklyReportViewProjectorTest {
         assertThat(view.members()).extracting(value -> value.realName())
                 .contains(fixture.leaderName);
         assertThat(view.downloadUrl())
-                .isEqualTo("/api/v1/groups/" + fixture.group.getId() + "/reports/ai-weekly/1/pdf");
+                .isEqualTo("/api/v1/groups/" + fixture.group.getId() + "/reports/ai-weekly/1/download");
     }
 
     /** 실제 500의 원인이었던 경로. 조회 트랜잭션 밖에서 팀원 이름을 읽으면 여기서 터졌다. */

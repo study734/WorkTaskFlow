@@ -197,7 +197,8 @@ public class AiWeeklyReportViewProjector {
             }
         }
 
-        String downloadUrl = String.format("/api/v1/groups/%d/reports/ai-weekly/%d/pdf", groupId, revision.getId());
+        // 생성 응답과 같은 경로를 알려 준다. 산출물은 인쇄용 HTML이다.
+        String downloadUrl = String.format("/api/v1/groups/%d/reports/ai-weekly/%d/download", groupId, revision.getId());
 
         return new AiWeeklyReportView(
                 revision.getId(),
