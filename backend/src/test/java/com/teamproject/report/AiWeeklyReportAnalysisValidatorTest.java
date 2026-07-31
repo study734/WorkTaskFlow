@@ -105,6 +105,54 @@ class AiWeeklyReportAnalysisValidatorTest {
         assertThat(result.errors()).anyMatch(e -> e.contains("HIGH confidence cannot have missingEvidence"));
     }
 
+    /**
+     * 실제 OpenAI 응답이 계약에 없는 {@code MEMBER}를 actionOwnerRole로 돌려줬는데 그대로 저장되어
+     * 사용자 문서에 영문 코드가 찍혔다. Schema에는 enum이 선언돼 있었지만 런타임에서 아무도 읽지 않았다.
+     */
+    @Test
+    @DisplayName("계약에 없는 역할 값을 거부한다")
+    void rejectsRolesOutsideTheContract() {
+        assertThat(validateWithRoles("LEADER", "MEMBER").errors())
+                .anyMatch(e -> e.contains("actionOwnerRole is not allowed: MEMBER"));
+        assertThat(validateWithRoles("TEAM_LEADER", "CURRENT_ASSIGNEE").errors())
+                .anyMatch(e -> e.contains("decisionMakerRole is not allowed: TEAM_LEADER"));
+    }
+
+    @Test
+    @DisplayName("계약에 있는 역할 값은 모두 통과한다")
+    void acceptsEveryRoleInTheContract() {
+        for (String owner : List.of("SELECTED_MEMBER", "CURRENT_ASSIGNEE", "REQUESTER", "LEADER", "TEAM")) {
+            assertThat(validateWithRoles("LEADER", owner).valid())
+                    .as("actionOwnerRole %s", owner).isTrue();
+        }
+        for (String maker : List.of("LEADER", "GROUP_ADMIN")) {
+            assertThat(validateWithRoles(maker, "CURRENT_ASSIGNEE").valid())
+                    .as("decisionMakerRole %s", maker).isTrue();
+        }
+    }
+
+    /** Fallback 결과의 역할만 바꿔 검증한다. 나머지 필드는 이미 통과가 보장된 값이다. */
+    private ValidationResult validateWithRoles(String decisionMakerRole, String actionOwnerRole) {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
+        List<AnalysisIssue> issues = fallback.issues().stream()
+                .map(issue -> {
+                    IssueDecision d = issue.decision();
+                    IssueDecision swapped = new IssueDecision(d.title(), d.question(),
+                            d.recommendedOptionCode(), d.recommendation(),
+                            decisionMakerRole, actionOwnerRole, d.deadline(),
+                            d.executionStepCodes(), d.completionSignalCodes());
+                    return new AnalysisIssue(issue.priority(), issue.candidateRef(), issue.severity(),
+                            issue.title(), issue.impact(), issue.confidence(), issue.taskRefs(),
+                            issue.evidenceCodes(), issue.missingEvidence(), issue.integratedJudgment(),
+                            issue.requiredDecision(), swapped);
+                })
+                .toList();
+
+        return validator.validate(snapshot, new AiWeeklyReportAnalysisV1(
+                fallback.schemaVersion(), fallback.analysisStatus(), fallback.executiveJudgment(),
+                fallback.achievement(), issues, fallback.globalMissingEvidence()));
+    }
+
     @Test
     @DisplayName("NO_BASELINE snapshot에서 delta metricRef 사용 시 거부한다")
     void rejectsDeltaMetricRefUnderNoBaseline() {

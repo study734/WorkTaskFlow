@@ -79,7 +79,9 @@ public final class AiWeeklyReportAnalysisContract {
         public String question;
         public String recommendedOptionCode;
         public String recommendation;
+        @JsonPropertyDescription("LEADER or GROUP_ADMIN")
         public String decisionMakerRole;
+        @JsonPropertyDescription("SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER, LEADER, or TEAM")
         public String actionOwnerRole;
         public Deadline deadline;
         public List<String> executionStepCodes;

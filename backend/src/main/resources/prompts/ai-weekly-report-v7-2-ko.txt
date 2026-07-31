@@ -34,6 +34,10 @@ decision의 recommendedOptionCode, executionStepCodes, completionSignalCodes는
 각각 그 candidate의 allowedOptionCodes, allowedExecutionStepCodes,
 allowedCompletionSignalCodes 안에서만 고른다.
 
+decision.decisionMakerRole은 LEADER 또는 GROUP_ADMIN만 쓴다.
+decision.actionOwnerRole은 SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER, LEADER,
+TEAM만 쓴다. 목록에 없는 값을 만들지 않는다.
+
 achievement.status가 AVAILABLE이면 evidenceTaskRefs는 status가 COMPLETED인
 업무만 가리킨다.
 achievement.status가 NONE이면 headline, summary는 빈 문자열이고

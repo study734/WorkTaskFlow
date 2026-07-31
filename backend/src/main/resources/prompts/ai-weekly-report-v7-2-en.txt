@@ -34,6 +34,10 @@ decision recommendedOptionCode, executionStepCodes, and completionSignalCodes mu
 come from that candidate allowedOptionCodes, allowedExecutionStepCodes, and
 allowedCompletionSignalCodes respectively.
 
+decision.decisionMakerRole must be LEADER or GROUP_ADMIN.
+decision.actionOwnerRole must be SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER,
+LEADER, or TEAM. Never invent a value outside these lists.
+
 When achievement.status is AVAILABLE, evidenceTaskRefs must point only to tasks
 whose status is COMPLETED.
 When achievement.status is NONE, headline and summary must be empty strings and

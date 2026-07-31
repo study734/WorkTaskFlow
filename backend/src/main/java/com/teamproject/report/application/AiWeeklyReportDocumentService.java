@@ -578,10 +578,13 @@ public class AiWeeklyReportDocumentService {
         if (role == null) return "-";
         return switch (role) {
             case "LEADER" -> doc.ko ? "팀장" : "Leader";
+            case "GROUP_ADMIN" -> doc.ko ? "그룹 관리자" : "Group admin";
             case "CURRENT_ASSIGNEE" -> doc.ko ? "현재 담당자" : "Current assignee";
             case "SELECTED_MEMBER" -> doc.ko ? "지정 팀원" : "Selected member";
             case "REQUESTER" -> doc.ko ? "요청자" : "Requester";
-            default -> role;
+            case "TEAM" -> doc.ko ? "팀 전체" : "Whole team";
+            // 계약 밖 값이 들어와도 사용자 문서에 코드를 그대로 찍지 않는다.
+            default -> doc.ko ? "확인할 수 없는 역할" : "Unidentified role";
         };
     }
 

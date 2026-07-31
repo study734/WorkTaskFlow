@@ -16,6 +16,11 @@ import java.util.stream.Collectors;
 @Component
 public class AiWeeklyReportAnalysisValidator {
 
+    /** docs/contracts/ai-weekly-report-analysis-v1.schema.json의 역할 enum과 같은 목록이다. */
+    private static final Set<String> DECISION_MAKER_ROLES = Set.of("LEADER", "GROUP_ADMIN");
+    private static final Set<String> ACTION_OWNER_ROLES =
+            Set.of("SELECTED_MEMBER", "CURRENT_ASSIGNEE", "REQUESTER", "LEADER", "TEAM");
+
     public record ValidationResult(boolean valid, List<String> errors) {
         public static ValidationResult ok() {
             return new ValidationResult(true, List.of());
@@ -146,6 +151,15 @@ public class AiWeeklyReportAnalysisValidator {
 
                     IssueDecision dec = issue.decision();
                     if (dec != null) {
+                        // 역할은 Schema에 enum으로 선언돼 있지만 런타임에서 아무도 읽지 않았다.
+                        // 실제로 모델이 목록에 없는 MEMBER를 돌려줬고 그대로 문서에 찍혔다.
+                        if (dec.decisionMakerRole() != null && !DECISION_MAKER_ROLES.contains(dec.decisionMakerRole())) {
+                            errors.add("Decision decisionMakerRole is not allowed: " + dec.decisionMakerRole());
+                        }
+                        if (dec.actionOwnerRole() != null && !ACTION_OWNER_ROLES.contains(dec.actionOwnerRole())) {
+                            errors.add("Decision actionOwnerRole is not allowed: " + dec.actionOwnerRole());
+                        }
+
                         if (dec.recommendedOptionCode() != null && !candidate.allowedOptionCodes().contains(dec.recommendedOptionCode())) {
                             errors.add("Decision recommendedOptionCode " + dec.recommendedOptionCode() + " is not allowed for candidate " + candidate.candidateRef());
                         }
