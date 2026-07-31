@@ -126,6 +126,37 @@ class OpenAiWeeklyReportGatewayTest {
     }
 
     @Test
+    @DisplayName("5xx Provider Error 발생 시 OpenAiReportInvalidResponseException으로 변환된다")
+    void handles5xxProviderError() {
+        when(responses.create(any(StructuredResponseCreateParams.class)))
+                .thenThrow(new RuntimeException("500 Internal Server Error"));
+
+        OpenAiWeeklyReportGateway gw = gateway(true, MODEL);
+        assertThatThrownBy(() -> gw.analyze(snapshot))
+                .isInstanceOf(OpenAiReportInvalidResponseException.class);
+    }
+
+    @Test
+    @DisplayName("Refusal 응답 수신 시 OpenAiReportInvalidResponseException을 던진다")
+    void handlesRefusalResponse() throws Exception {
+        stubResponse(refusal());
+
+        OpenAiWeeklyReportGateway gw = gateway(true, MODEL);
+        assertThatThrownBy(() -> gw.analyze(snapshot))
+                .isInstanceOf(OpenAiReportInvalidResponseException.class);
+    }
+
+    @Test
+    @DisplayName("Incomplete 응답 수신 시 OpenAiReportInvalidResponseException을 던진다")
+    void handlesIncompleteResponse() throws Exception {
+        stubResponse(withStatus(completed("{}"), "incomplete"));
+
+        OpenAiWeeklyReportGateway gw = gateway(true, MODEL);
+        assertThatThrownBy(() -> gw.analyze(snapshot))
+                .isInstanceOf(OpenAiReportInvalidResponseException.class);
+    }
+
+    @Test
     @DisplayName("Timeout 예외 발생 시 OpenAiReportTimeoutException으로 변환된다")
     void handlesTimeoutException() {
         when(responses.create(any(StructuredResponseCreateParams.class)))
@@ -169,5 +200,28 @@ class OpenAiWeeklyReportGatewayTest {
                 "status", "completed",
                 "model", MODEL,
                 "output", List.of()));
+    }
+
+    private String refusal() throws IOException {
+        return json.writeValueAsString(Map.of(
+                "id", "resp_refusal",
+                "object", "response",
+                "created_at", 1785222000,
+                "status", "completed",
+                "model", MODEL,
+                "output", List.of(Map.of(
+                        "id", "msg_refusal",
+                        "type", "message",
+                        "role", "assistant",
+                        "status", "completed",
+                        "content", List.of(Map.of(
+                                "type", "refusal",
+                                "refusal", "blocked"))))));
+    }
+
+    private String withStatus(String responseJson, String status) throws IOException {
+        var node = json.readTree(responseJson);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) node).put("status", status);
+        return json.writeValueAsString(node);
     }
 }

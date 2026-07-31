@@ -100,4 +100,27 @@ class AiWeeklyReportRevisionRepositoryTest {
         assertThat(found).isPresent();
         assertThat(found.get().getSourceFingerprint()).isEqualTo(fingerprint);
     }
+
+    @Test
+    @DisplayName("신규 revision 저장 시 이전 revision 1이 보존되고 revision 2가 생성된다")
+    void preservesRevision1WhenRevision2Created() {
+        LocalDate from = LocalDate.of(2026, 7, 20);
+        LocalDate toExclusive = LocalDate.of(2026, 7, 27);
+
+        AiWeeklyReportRevision r1 = new AiWeeklyReportRevision(
+                7L, from, toExclusive, "KO", 1, "FINALIZED", "OPENAI", "FP1", "{\"rev\":1}", "{}", "v7-2", "gpt-4o", 10, 20, LocalDateTime.now(), LocalDateTime.now()
+        );
+        repository.save(r1);
+
+        AiWeeklyReportRevision r2 = new AiWeeklyReportRevision(
+                7L, from, toExclusive, "KO", 2, "FINALIZED", "SERVER_FALLBACK", "FP2", "{\"rev\":2}", "{}", "v7-2", null, null, null, LocalDateTime.now(), LocalDateTime.now()
+        );
+        repository.save(r2);
+
+        var allRevisions = repository.findAll();
+        assertThat(allRevisions).hasSize(2);
+        assertThat(allRevisions).extracting(AiWeeklyReportRevision::getRevision).containsExactlyInAnyOrder(1, 2);
+        assertThat(allRevisions).filteredOn(r -> r.getRevision() == 1).extracting(AiWeeklyReportRevision::getSnapshotJson).containsExactly("{\"rev\":1}");
+        assertThat(allRevisions).filteredOn(r -> r.getRevision() == 2).extracting(AiWeeklyReportRevision::getSnapshotJson).containsExactly("{\"rev\":2}");
+    }
 }

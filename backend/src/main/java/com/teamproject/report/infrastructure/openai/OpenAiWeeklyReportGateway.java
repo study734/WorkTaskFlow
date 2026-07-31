@@ -75,6 +75,10 @@ public class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
         try {
             var response = client.responses().create(params);
 
+            if (response.status().filter(com.openai.models.responses.ResponseStatus.COMPLETED::equals).isEmpty()) {
+                throw new OpenAiReportInvalidResponseException("OpenAI response status is incomplete: " + response.status().map(Object::toString).orElse("NONE"));
+            }
+
             AiWeeklyReportAnalysisContract contract = response.output().stream()
                     .flatMap(item -> item.message().stream())
                     .flatMap(message -> message.content().stream())

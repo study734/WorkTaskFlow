@@ -94,6 +94,7 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
 - [x] (2026-07-31 16:04+09:00) **M5 완료.** `V34__create_ai_weekly_report_revision.sql`, `AiWeeklyReportRevision`, `AiWeeklyReportRevisionRepository` 구현. 커밋 `feeca4b`.
 - [x] (2026-07-31 16:05+09:00) **M6 완료.** `AiWeeklyReportGateway`, `AiWeeklyReportGenerationService` 오케스트레이션 및 Fake Gateway 통합 구현. 커밋 `118c520`.
 - [x] (2026-07-31 16:10+09:00) **M7 완료.** `OpenAiWeeklyReportGateway` 공식 Responses API Structured Outputs 연동 구현.
+- [x] (2026-07-31 16:34+09:00) **Backend Completion Bundle (M3~M7) & Repair 완료.** 총 259건 테스트 실행 (258건 성공, 예정된 Issue #4 실패 1건만 유지, 0 errors, 0 skipped). repair 커밋 `a1ed9d0`.
 - [ ] M8 API 계약 교체 (generate / read / download)
 - [ ] M9 v7-2 4페이지 렌더러
 - [ ] M10 프론트엔드 계약·화면 교체
