@@ -1,5 +1,6 @@
 package com.teamproject.report.application;
 
+import com.teamproject.report.application.dto.AiWeeklyReportDtos;
 import com.teamproject.report.application.dto.AiWeeklyReportDtos.*;
 import org.springframework.stereotype.Component;
 
