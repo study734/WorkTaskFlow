@@ -28,8 +28,6 @@ import { isRunningStandalone } from './pwa';
 import { SessionKeepAlive } from './SessionKeepAlive';
 import { AdminPage } from '../features/admin/AdminPage';
 import { DemoPage } from './DemoPage';
-import { AiWeeklyReportDetailPage } from '../features/report/pages/AiWeeklyReportDetailPage';
-import { AiWeeklyReportPrintPage } from '../features/report/pages/AiWeeklyReportPrintPage';
 
 export default function App() {
   return <LanguageProvider><BrowserRouter>
@@ -63,8 +61,6 @@ export default function App() {
     <Route path="/notifications" element={<NotificationsPage />} />
     <Route path="/calendar" element={<CalendarPage />} />
     <Route path="/groups/:groupId/dashboard" element={<GroupDashboardPage />} />
-    <Route path="/groups/:groupId/reports/ai-weekly/:reportId" element={<AiWeeklyReportDetailPage />} />
-    <Route path="/groups/:groupId/reports/ai-weekly/:reportId/print" element={<AiWeeklyReportPrintPage />} />
     <Route path="/group-invitations/accept" element={<InvitationAcceptPage />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/signup" element={<SignupPage />} />
