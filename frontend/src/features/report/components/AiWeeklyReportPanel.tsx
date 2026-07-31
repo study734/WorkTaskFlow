@@ -1,401 +1,215 @@
 import { useEffect, useState } from 'react';
-import { ApiError, errorMessage, saveBlob } from '../../../api/client';
+import { ApiError, errorMessage } from '../../../api/client';
 import { GroupResponse } from '../../../api/groupApi';
 import {
-  CompletedWeeklyAiReport,
-  NarrativeDraft,
+  AiWeeklyReportView,
   reportApi,
-  RevisionSummary,
-  WeeklyAiReport,
 } from '../../../api/reportApi';
 import { useLanguage } from '../../../app/LanguageContext';
 import { lastCompletedWeekStart } from '../../../app/week';
-import {
-  DEFAULT_REPORT_PROJECTION_STATE,
-  normalizeReportProjectionState,
-  ReportProjectionState,
-  ReportScope,
-  sameReportProjectionState,
-} from '../reportProjection';
 import { AiReportContent } from './AiReportContent';
-import { AiReportDraftEditor } from './AiReportDraftEditor';
-import { aiReportPrintPath } from './reportPrintRenderer';
 
 type Props = {
   groupId: number;
   group?: GroupResponse;
-  projectionState?: ReportProjectionState;
-  onProjectionStateChange?: (state: ReportProjectionState) => void;
-  initialReportId: number;
+  initialReportId?: number;
   onReportIdChange?: (reportId: number) => void;
 };
-type ViewState =
-  'idle' | 'loading' | 'generating' | 'saved' | 'failed' | 'insufficient' | 'unconfigured';
 
 export function AiWeeklyReportPanel({
   groupId,
   group,
-  projectionState = DEFAULT_REPORT_PROJECTION_STATE,
-  onProjectionStateChange,
   initialReportId,
   onReportIdChange,
 }: Props) {
-  const { language, t } = useLanguage();
-  const [weekStart, setWeekStart] = useState(lastCompletedWeekStart);
-  const [report, setReport] = useState<CompletedWeeklyAiReport>();
-  const [failedReport, setFailedReport] = useState<WeeklyAiReport>();
-  const [revisions, setRevisions] = useState<RevisionSummary[]>([]);
-  const [draft, setDraft] = useState<NarrativeDraft>();
-  const [editing, setEditing] = useState(false);
+  const { t } = useLanguage();
+  const [weekFrom, setWeekFrom] = useState(lastCompletedWeekStart);
+  const [language, setLanguage] = useState<'KO' | 'EN'>('KO');
+  const [reportView, setReportView] = useState<AiWeeklyReportView>();
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [state, setState] = useState<ViewState>('idle');
   const [message, setMessage] = useState('');
+
   const canManageAi = group?.membershipPlan === 'PAID' && group.role === 'LEADER';
   const canViewAi = group?.membershipPlan === 'PAID';
 
   useEffect(() => {
-    if (group?.timezone) setWeekStart(lastCompletedWeekStart(group.timezone));
+    if (group?.timezone) {
+      setWeekFrom(lastCompletedWeekStart(group.timezone));
+    }
   }, [group?.timezone]);
 
   useEffect(() => {
-    if (!canViewAi) {
-      setReport(undefined);
-      setFailedReport(undefined);
-      setRevisions([]);
-      setState('idle');
-      setMessage('');
+    if (!canViewAi || !initialReportId || initialReportId < 1) {
       return;
     }
     let active = true;
-    setState('loading');
+    setLoading(true);
     setMessage('');
-    setEditing(false);
-    const request = reportApi.findWeeklyAiById(groupId, initialReportId)
-      .then(async (value) => {
-        const revisionValues = await reportApi.revisions(
-          groupId,
-          value.periodStart,
-          value.language,
-        ).catch(() => []);
-        return [value, revisionValues] as const;
+    reportApi.findAiWeeklyById(groupId, initialReportId)
+      .then((res) => {
+        if (active) {
+          setReportView(res);
+          setWeekFrom(res.from);
+        }
+      })
+      .catch((err: ApiError) => {
+        if (active) {
+          if (err.code === 'AI_REPORT_NOT_FOUND') {
+            setReportView(undefined);
+          } else {
+            setMessage(errorMessage(err));
+          }
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-    request.then(([value, revisionValues]) => {
-      if (!active) return;
-      if (value.periodStart !== weekStart) setWeekStart(value.periodStart);
-      setRevisions(revisionValues);
-      acceptReport(value);
-    }).catch((value: ApiError) => {
-      if (!active) return;
-      setReport(undefined);
-      setFailedReport(undefined);
-      setRevisions([]);
-      if (value.code === 'AI_REPORT_NOT_FOUND') setState('idle');
-      else {
-        setState(errorState(value));
-        setMessage(errorMessage(value));
-      }
-    });
+
     return () => { active = false; };
-  }, [
-    canViewAi,
-    groupId,
-    initialReportId,
-    weekStart,
-  ]);
+  }, [canViewAi, groupId, initialReportId]);
 
-  useEffect(() => {
-    if (!report || !onProjectionStateChange) return;
-    const normalized = normalizeReportProjectionState(
-      projectionState,
-      report.operations.members,
-    );
-    if (!sameReportProjectionState(normalized, projectionState)) {
-      onProjectionStateChange(normalized);
-    }
-  }, [
-    onProjectionStateChange,
-    projectionState.density,
-    projectionState.memberRef,
-    projectionState.scope,
-    report,
-  ]);
-
-  function acceptReport(value: WeeklyAiReport) {
-    if (isCompleted(value)) {
-      setReport(value);
-      setFailedReport(undefined);
-      setDraft(value.draft ? cloneDraft(value.draft) : undefined);
-      setState('saved');
-    } else if (value.status === 'FAILED') {
-      setReport(undefined);
-      setFailedReport(value);
-      setState('failed');
-      setMessage(t(
-        '이전 생성이 실패했습니다. 다시 생성할 수 있습니다.',
-        'The previous generation failed. You can retry it.',
-      ));
-    } else {
-      setReport(undefined);
-      setFailedReport(undefined);
-      setState('generating');
-    }
+  function getToExclusive(fromStr: string): string {
+    const d = new Date(fromStr);
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
   }
 
-  async function refreshRevisions() {
-    setRevisions(await reportApi.revisions(groupId, weekStart, language));
-  }
-
-  async function retryFailed() {
-    if (!failedReport) return;
+  async function handleGenerate(regenerate: boolean) {
+    if (!canManageAi) return;
     setSubmitting(true);
-    setState('generating');
     setMessage('');
     try {
-      const created = await reportApi.regenerate(
-        groupId, failedReport.reportId, failedReport.editorVersion,
-      );
-      acceptReport(created);
-      onReportIdChange?.(created.reportId);
-      await refreshRevisions();
-    } catch (value) {
-      setState(errorState(value as ApiError));
-      setMessage(errorMessage(value));
+      const toExclusive = getToExclusive(weekFrom);
+      const res = await reportApi.generateAiWeekly(groupId, {
+        from: weekFrom,
+        toExclusive,
+        language,
+        regenerate,
+      });
+
+      // Load full view
+      const fullView = await reportApi.findAiWeeklyById(groupId, res.reportId);
+      setReportView(fullView);
+      onReportIdChange?.(fullView.reportId);
+    } catch (err) {
+      setMessage(errorMessage(err));
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function openRevision(reportId: number) {
-    setState('loading');
-    setMessage('');
-    try {
-      const value = await reportApi.findWeeklyAiById(groupId, reportId);
-      acceptReport(value);
-      onReportIdChange?.(value.reportId);
-    } catch (value) {
-      setState(errorState(value as ApiError));
-      setMessage(errorMessage(value));
-    }
-  }
-
-  async function saveDraft() {
-    if (!report || !draft) return;
-    setState('loading');
-    setMessage('');
-    try {
-      const updated = await reportApi.editDraft(
-        groupId, report.reportId, report.editorVersion, draft,
-      );
-      acceptReport(updated);
-      setEditing(false);
-      await refreshRevisions();
-    } catch (value) {
-      setState(errorState(value as ApiError));
-      setMessage(errorMessage(value));
-    }
-  }
-
-  async function regenerate() {
-    if (!report || !window.confirm(t(
-      '현재 근거를 그대로 사용해 새 리비전을 생성할까요?',
-      'Generate a new revision from the same frozen evidence?',
-    ))) return;
-    setState('generating');
-    setMessage('');
-    try {
-      const created = await reportApi.regenerate(
-        groupId, report.reportId, report.editorVersion,
-      );
-      acceptReport(created);
-      onReportIdChange?.(created.reportId);
-      setEditing(false);
-      await refreshRevisions();
-    } catch (value) {
-      setState(errorState(value as ApiError));
-      setMessage(errorMessage(value));
-    }
-  }
-
-  async function finalizeReport() {
-    if (!report || !window.confirm(t(
-      '이 초안을 확정할까요? 확정한 내용은 수정할 수 없습니다.',
-      'Finalize this draft? Finalized content cannot be edited.',
-    ))) return;
-    setState('loading');
-    setMessage('');
-    try {
-      const finalized = await reportApi.finalize(
-        groupId, report.reportId, report.editorVersion,
-      );
-      acceptReport(finalized);
-      setEditing(false);
-      await refreshRevisions();
-    } catch (value) {
-      setState(errorState(value as ApiError));
-      setMessage(errorMessage(value));
-    }
-  }
-
-  async function downloadPdf() {
-    if (!report) return;
+  async function handleDownloadPdf() {
+    if (!reportView) return;
     setSubmitting(true);
-    setMessage('');
     try {
-      const file = await reportApi.downloadWeeklyAiPdf(groupId, report.reportId);
-      saveBlob(file.blob, file.filename);
-    } catch (value) {
-      setMessage(errorMessage(value));
+      await reportApi.downloadAiWeeklyPdf(
+        groupId,
+        reportView.reportId,
+        reportView.from,
+        reportView.revision
+      );
+    } catch (err) {
+      setMessage(errorMessage(err));
     } finally {
       setSubmitting(false);
     }
   }
 
-  function selectScope(scope: ReportScope) {
-    if (!report || !onProjectionStateChange) return;
-    const memberRef = scope === 'INDIVIDUAL_MEMBER'
-      ? projectionState.memberRef ?? report.operations.members[0]?.member.ref
-      : undefined;
-    onProjectionStateChange(normalizeReportProjectionState(
-      { ...projectionState, scope, memberRef },
-      report.operations.members,
-    ));
-  }
-
-  function selectMember(memberRef: string) {
-    if (!report || !onProjectionStateChange) return;
-    onProjectionStateChange(normalizeReportProjectionState(
-      { ...projectionState, scope: 'INDIVIDUAL_MEMBER', memberRef },
-      report.operations.members,
-    ));
-  }
-
-  return <section className="ai-report-reader">
-    {!group || group.membershipPlan === 'FREE' ? <div className="ai-report-lock">
-      <strong>🔒 {t('유료 플랜 기능', 'Paid plan feature')}</strong>
-      <p>{t(
-        '기본 리포트는 현황을 보여주고, AI 리포트는 비식별 업무 문맥을 분석해 위험·행동·결정사항을 제안합니다.',
-        'Basic reports show status. AI reports analyze de-identified context to suggest risks, actions, and decisions.',
-      )}</p>
-    </div> : <>
-      <div className="ai-report-reader-toolbar">
-        <div className="report-controls ai-report-controls">
-          {canManageAi && revisions.length > 0 && <label><span>{t('리비전', 'Revision')}</span>
-              <select name="ai-report-revision" value={report?.reportId ?? failedReport?.reportId ?? ''}
-                onChange={(event) => void openRevision(Number(event.target.value))}>
-            {revisions.map((revision) => <option value={revision.reportId}
-              key={revision.reportId}>
-              R{revision.revision} · {revision.publicationStatus}
-            </option>)}
-          </select>
-          </label>}
-          {report && onProjectionStateChange && <>
-          <label><span>{t('리포트 범위', 'Report scope')}</span>
-            <select name="ai-report-scope" value={projectionState.scope}
-              onChange={(event) => selectScope(event.target.value as ReportScope)}>
-              <option value="GROUP">{t('그룹 전체', 'Whole group')}</option>
-              <option value="MEMBER_COMPARISON">
-                {t('팀원 비교', 'Member comparison')}
-              </option>
-              <option value="INDIVIDUAL_MEMBER">
-                {t('개별 팀원', 'Individual member')}
-              </option>
-            </select>
-          </label>
-          {projectionState.scope === 'INDIVIDUAL_MEMBER'
-            && <label><span>{t('팀원 선택', 'Select member')}</span>
-              <select name="ai-report-member" value={projectionState.memberRef}
-                onChange={(event) => selectMember(event.target.value)}>
-                {report.operations.members.map(({ member }) =>
-                  <option value={member.ref} key={member.ref}>{member.label}</option>)}
-              </select>
-            </label>}
-          </>}
-          {failedReport && <button className="report-download" type="button"
-            disabled={submitting} onClick={() => void retryFailed()}>
-            {submitting
-              ? t('생성 중...', 'Generating...')
-              : t('실패한 리비전 다시 시도', 'Retry failed revision')}
-          </button>}
+  return (
+    <section className="ai-report-reader">
+      {!group || group.membershipPlan === 'FREE' ? (
+        <div className="ai-report-lock">
+          <strong>🔒 {t('유료 플랜 기능', 'Paid plan feature')}</strong>
+          <p>
+            {t(
+              '유료 팀 플랜에서만 AI 주간 리포트를 사용할 수 있습니다.',
+              'AI Weekly Report is only available on paid team plans.'
+            )}
+          </p>
         </div>
-        <span className={`report-state ${state}`}>{stateLabel(state, t)}</span>
-      </div>
+      ) : (
+        <>
+          <div className="ai-report-reader-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', background: '#f8fafc', padding: '12px', borderRadius: '8px' }}>
+            <div className="report-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>{t('주간 선택 (월요일)', 'Week (Monday)')}</span>
+                <input
+                  type="date"
+                  value={weekFrom}
+                  onChange={(e) => setWeekFrom(e.target.value)}
+                  style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                />
+              </label>
 
-      {report && !editing && <>
-        <AiReportContent report={report} density={projectionState.density} />
-        <div className="ai-report-actions">
-          {report.publicationStatus === 'FINALIZED'
-            ? <button className="secondary" type="button" disabled={submitting}
-              onClick={() => void downloadPdf()}>
-              {submitting ? t('다운로드 중...', 'Downloading...')
-                : t('PDF 다운로드', 'Download PDF')}
-            </button>
-            : <a className="secondary button-link"
-              href={aiReportPrintPath(groupId, report.reportId)} target="_blank" rel="noreferrer">
-              {t('인쇄 미리보기', 'Print preview')}
-            </a>}
-          {canManageAi && report.publicationStatus === 'DRAFT' && <>
-            <button className="secondary" type="button" onClick={() => {
-              setDraft(report.draft ? cloneDraft(report.draft) : undefined);
-              setEditing(true);
-            }}>{t('초안 편집', 'Edit draft')}</button>
-            <button className="secondary" type="button"
-              disabled={state === 'generating'} onClick={regenerate}>
-              {t('새 리비전 생성', 'Regenerate')}
-            </button>
-            <button className="primary" type="button"
-              disabled={state === 'loading'} onClick={finalizeReport}>
-              {t('리포트 확정', 'Finalize report')}
-            </button>
-          </>}
-        </div>
-      </>}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>{t('언어', 'Language')}</span>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as 'KO' | 'EN')}
+                  style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                >
+                  <option value="KO">한국어 (KO)</option>
+                  <option value="EN">English (EN)</option>
+                </select>
+              </label>
 
-      {report && editing && draft && <AiReportDraftEditor
-        value={draft}
-        members={report.operations.members.map(({ member }) => member)}
-        disabled={state === 'loading'}
-        onChange={setDraft}
-        onSave={() => void saveDraft()}
-        onCancel={() => {
-          setDraft(report.draft ? cloneDraft(report.draft) : undefined);
-          setEditing(false);
-        }}
-      />}
+              {canManageAi && (
+                <>
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={submitting || loading}
+                    onClick={() => void handleGenerate(false)}
+                    style={{ background: '#2563eb', color: '#fff', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    {submitting ? t('생성 중...', 'Generating...') : t('리포트 생성', 'Generate')}
+                  </button>
 
-      {message && <p className="error">{message}</p>}
-      <p className="report-policy">{t(
-        '업무 제목·설명·댓글·이름·자유 입력 보류 사유는 OpenAI에 보내지 않습니다. 수치와 날짜는 서버 근거로만 표시합니다.',
-        'Task titles, descriptions, comments, names, and free-text blocker reasons are not sent to OpenAI. Numbers and dates come only from server evidence.',
-      )}</p>
-    </>}
-  </section>;
-}
+                  {reportView && (
+                    <button
+                      className="secondary"
+                      type="button"
+                      disabled={submitting || loading}
+                      onClick={() => void handleGenerate(true)}
+                      style={{ background: '#475569', color: '#fff', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      {t('새 리비전 재생성', 'Regenerate')}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
 
-function isCompleted(value: WeeklyAiReport): value is CompletedWeeklyAiReport {
-  return value.status === 'COMPLETED' && value.analysis != null;
-}
+            {reportView && (
+              <button
+                className="secondary"
+                type="button"
+                disabled={submitting}
+                onClick={() => void handleDownloadPdf()}
+                style={{ background: '#059669', color: '#fff', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+              >
+                📥 {t('PDF 다운로드', 'Download PDF')}
+              </button>
+            )}
+          </div>
 
-function cloneDraft(value: NarrativeDraft) {
-  return JSON.parse(JSON.stringify(value)) as NarrativeDraft;
-}
+          {loading && <p>{t('리포트를 불러오는 중...', 'Loading report...')}</p>}
+          {message && <p className="error" style={{ color: '#dc2626', fontWeight: 600 }}>{message}</p>}
 
-function stateLabel(state: ViewState, t: (ko: string, en: string) => string) {
-  const labels: Record<ViewState, [string, string]> = {
-    idle: ['생성 가능', 'Ready'],
-    loading: ['확인 중', 'Checking'],
-    generating: ['생성 중', 'Generating'],
-    saved: ['검토 가능', 'Ready to review'],
-    failed: ['확인 필요', 'Needs attention'],
-    insufficient: ['데이터 부족', 'Insufficient data'],
-    unconfigured: ['AI 미설정', 'AI not configured'],
-  };
-  const [ko, en] = labels[state];
-  return t(ko, en);
-}
+          {reportView && !loading && (
+            <AiReportContent report={reportView} />
+          )}
 
-function errorState(error: ApiError): ViewState {
-  if (error.code === 'AI_REPORT_INSUFFICIENT_DATA') return 'insufficient';
-  if (error.code === 'AI_REPORT_NOT_CONFIGURED') return 'unconfigured';
-  if (error.code === 'AI_REPORT_GENERATING') return 'generating';
-  return 'failed';
+          {!reportView && !loading && (
+            <div style={{ textAlign: 'center', padding: '40px 20px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+              <p style={{ color: '#64748b' }}>
+                {t('선택한 주간의 리포트가 없습니다. 생성 버튼을 눌러 리포트를 생성하세요.', 'No report found for selected week. Click Generate to create one.')}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
 }
