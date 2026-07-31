@@ -128,38 +128,57 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
 - 🔴 원시 ref가 사용자 문서에 노출된다. projector는 구조화 필드만 재결합하고
   모델이 산문 안에 쓴 `TASK-6` 같은 ref는 그대로 둔다. 명세 §8.1 "재결합은
   서버에서 수행한다"를 텍스트 필드까지 확장해야 한다.
+  → 2026-07-31 23:40 해소. 아래 "다음 작업" 첫 항목 참고.
 - 🟡 시연 데이터에 지연·미지정 업무가 없어 `riskCandidates`가 0이다. 정책
   엔진 동작은 정상이나 3·4페이지가 비어 실물을 보여줄 수 없다. 코드가 아닌
   데이터 문제다.
 
-### 다음 작업 (미착수)
+### 다음 작업
 
-- [ ] **🔴 산문 속 원시 ref 치환.** 배포 전 필수.
-  `AiWeeklyReportViewProjector`는 `evidenceTaskTitles`처럼 **구조화된 ref 필드만**
-  실제 제목으로 바꾼다. 모델이 문장 안에 직접 써 넣은 ref는 그대로 남아
-  사용자 문서에 내부 식별자가 찍힌다.
+- [x] (2026-07-31 23:40+09:00) **🔴 산문 속 원시 ref 치환 완료.**
+  `AiWeeklyReportViewProjector`에 `RefResolver`를 넣어 `TASK-\d+` / `MEMBER-\d+` /
+  `EVENT-\d+`를 이미 만들어 둔 `taskTitleByRef` · `memberNameByRef` ·
+  `eventTitleByRef`로 치환한다. 계획대로 대상 텍스트 필드 11개를 모두 거친다.
 
-  실제 관측(revision 17, `analysis_mode=OPENAI`):
+  계획에 없던 것 두 가지를 함께 고쳤다. 같은 종류의 누출이다.
+  ① `evidenceTaskTitles`의 미해석 라벨이 `확인할 수 없는 업무 (TASK-6)`처럼 괄호
+  안에 원시 ref를 담고 있었다. ② `assigneeName`·`realName`·`deadline.referenceTitle`은
+  해석 실패 시 ref 문자열 자체를 표시 이름으로 넘겼다. 셋 다 문서 언어를 따르는
+  비식별 라벨로 바꿨다. 담당자가 없는 업무는 `assigneeName`을 계속 null로 두어
+  화면의 "미지정" 표기를 유지한다.
 
-  ```text
-  TASK-6은 URGENT 우선순위이며 마감 임박 상태이지만 아직 TODO이다.
-  TASK-5가 2026-07-29에 기한 내 완료되어, 이번 기간 완료 업무는 1건이다.
+  프롬프트(ko/en) 양쪽에 "문장 안에서는 ref를 그대로 쓰고 서버가 바꾼다"를 넣어
+  모델이 ref를 피하려다 근거 연결을 잃거나 제목을 지어내지 않게 했다.
+  명세 §8.1에 대상 필드 목록과 개정 사유를 적었다.
+
+  회귀 테스트 2건을 `AiWeeklyReportViewProjectorTest`에 추가했다. 하나는 실제
+  관측된 문장을 그대로 넣어 치환을 확인하고, 다른 하나는 해석 불가 ref를 넣는다.
+  둘 다 사용자에게 문장으로 보이는 필드 전부를 모아 `(TASK|MEMBER|EVENT)-\d+`가
+  남지 않는지 검사한다. 구조화 ref 배열은 계약상 ref를 담으므로 대상에서 뺐다.
+
+  검증: `com.teamproject.report.*Test` 127건 통과(실패 0).
+
+- [ ] **🟡 대시보드 "월 전체"에서 AI 리포트 기간이 조용히 1주차로 잡힌다.**
+  (2026-08-01 관측) [GroupDashboardPage.tsx:153](../../frontend/src/features/dashboard/pages/GroupDashboardPage.tsx)
+  의 `reportRange`가 `week`를 falsy 검사한다:
+
+  ```tsx
+  const selectedWeek = week || (current.getFullYear() === year && current.getMonth() + 1 === month
+    ? Math.ceil(current.getDate() / 7) : 1);
   ```
 
-  대상 텍스트 필드: `executiveJudgment.headline` / `.interpretation`,
-  `achievement.headline` / `.summary`, `issue.title` / `.impact` /
-  `.integratedJudgment` / `.requiredDecision`,
-  `decision.title` / `.question` / `.recommendation`.
+  `월 전체`는 값이 `0`이라 폴백으로 빠진다. 선택한 달이 이번 달이면 오늘 기준 주차, 아니면
+  1주차다. 사용자는 "주차를 안 고르겠다"고 했는데 리포트가 말없이 7일치를 골라, 화면 필터
+  범위(달 전체)와 리포트 대상 범위가 어긋난다.
 
-  방법: projection 단계에서 `TASK-\d+` / `MEMBER-\d+` / `EVENT-\d+`를 이미 만들어 둔
-  `taskTitleByRef` · `memberNameByRef` · `eventTitleByRef`로 치환한다. 매칭에
-  실패한 ref는 비식별 라벨로 바꾸고 원시 식별자를 남기지 않는다. 명세 §8.1
-  "재결합은 서버에서 수행한다"를 텍스트 필드까지 확장하는 작업이다.
-  프롬프트에도 "ref를 그대로 써도 되며 서버가 제목으로 치환한다"를 명시해
-  모델이 ref를 피하려다 근거 연결을 잃지 않게 한다.
+  딸린 증상: 폴백이 **오늘이 포함된 주차**를 고르므로 이번 달을 보는 동안 버튼이 항상
+  `AI 리포트는 완료된 기간만 생성할 수 있습니다.` 상태가 된다.
 
-  회귀 테스트: ref를 포함한 분석 문장을 넣고 projection 결과에 `TASK-`,
-  `MEMBER-`, `EVENT-` 문자열이 남지 않는지 검사한다.
+  선택지 — ① 월 전체 + 주간을 월간으로 취급 ② 월 전체면 비활성 + 주차 선택 안내
+  ③ 직전 **완료** 주차로 폴백. ③이 두 증상을 같이 없앤다.
+
+  기간 제약 완화(`d1e575e`)가 "대시보드 주차가 달 기준 묶음"을 이유로 서버를 고쳤는데,
+  월 전체 경우는 그때 다루지 않았다.
 
 - [ ] **🟡 위험·결정 페이지를 실증할 시연 데이터.**
   `riskCandidates`가 생기려면 미지정·지연·승인 대기·체크리스트 0/N·미응답 멘션·
