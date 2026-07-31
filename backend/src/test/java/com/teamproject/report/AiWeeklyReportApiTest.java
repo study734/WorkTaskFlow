@@ -235,12 +235,12 @@ class AiWeeklyReportApiTest {
     }
 
     @Test
-    @DisplayName("월요일이 아닌 from 날짜나 7일이 아닌 기간은 400 Bad Request를 반환한다")
+    @DisplayName("from이 toExclusive 이후이거나 같은 잘못된 기간은 400 Bad Request를 반환한다")
     void invalidPeriodReturns400() throws Exception {
-        String notMondayBody = """
+        String invalidBody = """
                 {
-                  "from": "2026-07-21",
-                  "toExclusive": "2026-07-28",
+                  "from": "2026-07-28",
+                  "toExclusive": "2026-07-21",
                   "language": "KO",
                   "regenerate": false
                 }
@@ -249,7 +249,7 @@ class AiWeeklyReportApiTest {
         mvc.perform(post("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + leaderToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(notMondayBody))
+                        .content(invalidBody))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("AI_REPORT_WEEK_INVALID"));
     }

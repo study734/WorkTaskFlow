@@ -45,8 +45,9 @@
 - **D2 개인정보**: `safeLabel`에 **원본 업무 제목·일정 제목을 넣지 않는다.**
   서버가 생성한 비식별 의미 라벨만 전송한다. 실제 제목은 분석이 끝난 뒤
   서버가 `taskRef` / `eventRef`로 다시 결합해 표시한다.
-- **D3 기간**: 그룹 시간대 기준으로 **완료된 월요일~일요일**,
-  `[from, toExclusive)` 정확히 7일만 허용한다. 달 기준 절단 주차는 폐기한다.
+- **D3 기간** (2026-07-31 개정): 그룹 시간대 기준으로 **이미 완료된**
+  `[from, toExclusive)` 기간을 허용한다. 시작 요일과 길이는 제한하지 않으며,
+  달 기준 주차·월말 절단 주차·월간·연간을 모두 받는다. 자세한 규칙은 §4.3.
 - **D4 lifecycle**: 초안 편집과 수동 확정을 제거한다. 생성 성공 또는 서버
   fallback 성공 시 즉시 `FINALIZED`다. 재생성은 유지한다.
 - **D5 저장소**: 새 테이블 `ai_weekly_report_revision`을 `V34` migration으로
@@ -333,15 +334,22 @@ docs/contracts/ai-weekly-report-snapshot-v1.schema.json
 }
 ```
 
-규칙 (D3 확정):
+규칙 (D3 확정, 2026-07-31 개정):
 
 - 기간은 `[from, toExclusive)`
-- `from`은 그룹 timezone 기준 **월요일**이어야 한다
-- `toExclusive`는 `from + 7일`이며 기간은 정확히 7일이다
-- 그룹 timezone 기준으로 **이미 완료된** 주간만 허용한다
-- 달 기준 주차(매월 1·8·15·22·29일 시작)와 월말 절단 주차는 허용하지 않는다
+- `from < toExclusive`이면 되고, 시작 요일과 길이는 제한하지 않는다
+- 그룹 timezone 기준으로 **이미 완료된** 기간만 허용한다
+  (`toExclusive`가 오늘보다 뒤면 거부)
+- 달 기준 주차(매월 1·8·15·22·29일 시작), 월말 절단 주차, 월간·연간 기간을
+  모두 허용한다
+- 직전 비교 기간은 선택 기간과 **같은 길이**로 바로 앞에 붙인다
 - 날짜 계산은 그룹 timezone 기준
 - OpenAI가 기간을 재해석하지 않음
+
+> 개정 사유: 대시보드의 기간 선택(주차·월간·연간)이 달 기준 날짜 묶음이라
+> 월요일 7일 제약과 구조적으로 맞지 않았다. 화면에서 고른 기간을 그대로
+> 생성할 수 있게 서버 제약을 기간 유효성과 완료 여부로만 좁혔다.
+> JSON Schema와 migration은 변경하지 않았다.
 
 ## 4.4 Metrics
 
@@ -1979,7 +1987,7 @@ MVP: tasks.blocker_type(V32 컬럼)을 history.holdReasonCategory enum으로 매
 | D1 분석 상태 | JSON Schema 기준 `NORMAL / PARTIAL / NO_ACTION_REQUIRED` |
 | D2 성과 | `achievement`는 필수 객체. 없으면 `status = NONE` |
 | D2 개인정보 | `safeLabel`에 원본 업무·일정 제목을 넣지 않는다. 서버 생성 비식별 의미 라벨만 사용 |
-| D3 기간 | 그룹 시간대 기준 완료된 월요일~일요일, `[from, toExclusive)` 정확히 7일 |
+| D3 기간 | 그룹 시간대 기준 완료된 `[from, toExclusive)`. 시작 요일·길이 제한 없음 (2026-07-31 개정) |
 | D4 lifecycle | 초안 편집·수동 확정 제거. 생성 또는 fallback 성공 시 즉시 `FINALIZED`. 재생성은 유지 |
 | D5 저장소 | `V34` 신규 `ai_weekly_report_revision` 테이블. 기존 `reports` 데이터 변환 금지 |
 | D5 legacy | 기존 AI 리포트 ID 접근 시 `410 AI_REPORT_LEGACY_REVISION` |

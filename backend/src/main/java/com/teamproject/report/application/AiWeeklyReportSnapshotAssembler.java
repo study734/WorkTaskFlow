@@ -17,12 +17,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
-import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -46,7 +46,6 @@ import java.util.Map;
 public class AiWeeklyReportSnapshotAssembler {
     /** 활동 이력 스냅샷 계약 버전. TaskMetricsSnapshotSource와 같은 값을 본다. */
     private static final int CONTEXT_SNAPSHOT_VERSION = 2;
-    private static final int PERIOD_DAYS = 7;
     /** 기간 종료 후 이 기간 안에 마감이면 임박으로 본다. */
     private static final int DUE_SOON_DAYS = 3;
     private static final int MAX_MEMBERS = 100;
@@ -76,13 +75,13 @@ public class AiWeeklyReportSnapshotAssembler {
         Group group = groups.findById(groupId).orElseThrow(() -> new ApplicationException(
                 "GROUP_NOT_FOUND", HttpStatus.NOT_FOUND, "그룹을 찾을 수 없습니다."));
         ZoneId zone = ZoneId.of(group.getTimezone());
-        requireCompletedMondayWeek(from, toExclusive, zone);
+        requireCompletedPeriod(from, toExclusive, zone);
 
         TaskReportDataQuery.PeriodData currentPeriod =
                 periodData(groupId, from, toExclusive, zone);
         List<TaskSnapshot> current = snapshotsOf(currentPeriod);
         List<TaskSnapshot> previous = snapshotsOf(
-                periodData(groupId, from.minusDays(PERIOD_DAYS), from, zone));
+                periodData(groupId, previousFrom(from, toExclusive), from, zone));
         List<ActivityEvent> events = currentPeriod.activityEvents();
 
         List<TaskSnapshot> tasks = current.stream()
@@ -129,16 +128,14 @@ public class AiWeeklyReportSnapshotAssembler {
 
     // ---------- 기간 ----------
 
-    private void requireCompletedMondayWeek(LocalDate from, LocalDate toExclusive, ZoneId zone) {
-        if (from == null || toExclusive == null
-                || from.getDayOfWeek() != DayOfWeek.MONDAY
-                || !from.plusDays(PERIOD_DAYS).isEqual(toExclusive)) {
+    private void requireCompletedPeriod(LocalDate from, LocalDate toExclusive, ZoneId zone) {
+        if (from == null || toExclusive == null || !from.isBefore(toExclusive)) {
             throw new ApplicationException("AI_REPORT_WEEK_INVALID", HttpStatus.BAD_REQUEST,
-                    "주간 기간은 월요일부터 정확히 7일이어야 합니다.");
+                    "기간이 올바르지 않습니다.");
         }
         if (!toExclusive.isAfter(LocalDate.now(clock.withZone(zone)))) return;
         throw new ApplicationException("AI_REPORT_WEEK_INCOMPLETE", HttpStatus.BAD_REQUEST,
-                "완료된 주간만 AI 리포트를 생성할 수 있습니다.");
+                "완료된 기간만 AI 리포트를 생성할 수 있습니다.");
     }
 
     /**
@@ -194,11 +191,19 @@ public class AiWeeklyReportSnapshotAssembler {
                                 hours.stream().mapToLong(Long::longValue).average().orElse(0))));
     }
 
+    /**
+     * 직전 비교 기간은 선택 기간과 같은 길이로 바로 앞에 붙인다. 기간 길이가 7일로 고정돼
+     * 있지 않으므로 월간·연간·잘린 마지막 주차도 자기 길이만큼 거슬러 올라간다.
+     */
+    private LocalDate previousFrom(LocalDate from, LocalDate toExclusive) {
+        return from.minusDays(ChronoUnit.DAYS.between(from, toExclusive));
+    }
+
     /** 이전 기간에 업무가 하나도 없으면 비교 자체가 성립하지 않는다. */
     private SnapshotComparison comparison(List<TaskSnapshot> current, List<TaskSnapshot> previous,
             LocalDate from, LocalDate toExclusive) {
         if (previous.isEmpty()) return SnapshotComparison.noBaseline();
-        LocalDate previousFrom = from.minusDays(PERIOD_DAYS);
+        LocalDate previousFrom = previousFrom(from, toExclusive);
         SnapshotMetrics now = metrics(current, toExclusive, ZoneOffset.UTC);
         SnapshotMetrics before = metrics(previous, from, ZoneOffset.UTC);
         return new SnapshotComparison(ComparisonStatus.AVAILABLE,

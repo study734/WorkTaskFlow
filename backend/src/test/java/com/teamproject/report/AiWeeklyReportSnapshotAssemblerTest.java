@@ -291,17 +291,17 @@ class AiWeeklyReportSnapshotAssemblerTest {
     }
 
     @Test
-    @DisplayName("월요일이 아니거나 7일이 아닌 기간을 거부한다")
-    void rejectsPeriodsThatAreNotACompletedMondayWeek() {
+    @DisplayName("from이 toExclusive 이후이거나 같은 잘못된 기간은 거부한다")
+    void rejectsLogicallyInvalidPeriods() {
         Fixture fixture = fixture();
 
         assertThatThrownBy(() -> assembler.assemble(fixture.group.getId(),
-                FROM.plusDays(1), TO_EXCLUSIVE.plusDays(1), Language.KO, "v7-2-prompt-001"))
+                FROM.plusDays(1), FROM, Language.KO, "v7-2-prompt-001"))
                 .isInstanceOfSatisfying(ApplicationException.class, exception ->
                         assertThat(exception.code()).isEqualTo("AI_REPORT_WEEK_INVALID"));
 
         assertThatThrownBy(() -> assembler.assemble(fixture.group.getId(),
-                FROM, FROM.plusDays(5), Language.KO, "v7-2-prompt-001"))
+                FROM, FROM, Language.KO, "v7-2-prompt-001"))
                 .isInstanceOfSatisfying(ApplicationException.class, exception ->
                         assertThat(exception.code()).isEqualTo("AI_REPORT_WEEK_INVALID"));
     }
