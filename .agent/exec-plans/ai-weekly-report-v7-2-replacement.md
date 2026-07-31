@@ -95,10 +95,11 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
 - [x] (2026-07-31 16:05+09:00) **M6 완료.** `AiWeeklyReportGateway`, `AiWeeklyReportGenerationService` 오케스트레이션 및 Fake Gateway 통합 구현. 커밋 `118c520`.
 - [x] (2026-07-31 16:10+09:00) **M7 완료.** `OpenAiWeeklyReportGateway` 공식 Responses API Structured Outputs 연동 구현.
 - [x] (2026-07-31 16:34+09:00) **Backend Completion Bundle (M3~M7) & Repair 완료.** 총 259건 테스트 실행 (258건 성공, 예정된 Issue #4 실패 1건만 유지, 0 errors, 0 skipped). repair 커밋 `a1ed9d0`.
-- [ ] M8 API 계약 교체 (generate / read / download)
-- [ ] M9 v7-2 4페이지 렌더러
-- [ ] M10 프론트엔드 계약·화면 교체
-- [ ] M11 legacy 코드 제거와 최종 diff 검토
+- [x] (2026-07-31 16:55+09:00) **M8 완료.** REST API v7-2 계약 교체 (`POST/GET/PDF`), `AiWeeklyReportAccessService`, `AiWeeklyReportViewProjector`, `AiWeeklyReportController`, `AiWeeklyReportApiTest` 10건 통과. 커밋 `0c912e4`.
+- [x] (2026-07-31 16:56+09:00) **M9 완료.** `OpenHtmlReportPdfRenderer` renderWeeklyAiV72 4페이지 PDF 렌더링 구현 및 `OpenHtmlReportPdfRendererV72Test` 2건 통과. 커밋 `fa4838d`.
+- [x] (2026-07-31 16:57+09:00) **M10 완료.** `reportApi.ts`, `AiReportContent.tsx`, `AiWeeklyReportPanel.tsx` v7-2 4페이지 UI 및 `npm --prefix frontend run build` 성공. 커밋 `ee72899`.
+- [x] (2026-07-31 16:58+09:00) **M11 완료.** legacy weekly AI report 클래스/테스트 제거 (`WeeklyReportController`, `WeeklyReportModule` 등) 및 최종 검증 준비.
+
 
 
 ## Surprises & Discoveries
