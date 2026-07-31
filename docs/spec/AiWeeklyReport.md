@@ -10,9 +10,11 @@
 - OpenAI 연동: 공식 `com.openai:openai-java:4.47.0`
 - OpenAI API: Responses API + Java 타입 기반 Structured Outputs
 - Spring 연동: `OpenAIClient` Bean 직접 등록. EOL된 Spring Boot Starter 사용 금지
-- 명세 수정일: 2026-07-31
+- 명세 수정일: 2026-07-31 (D1~D7 제품 결정 확정 반영)
 - 핵심 원칙: 서버가 사실·수치·날짜·후보를 확정하고, AI는 중요도·연결·설명·권고만 수행한다.
-- 계약 정본: 런타임 출력 구조는 Java 계약 클래스, 외부 공유·회귀 검증은 버전 고정 JSON Schema, 의미 규칙은 서버 Validator가 담당한다.
+- 계약 정본: **필드 이름과 enum 값은 버전 고정 JSON Schema가 정본이다.** Java 계약 클래스는 그 Schema를 Java 타입으로 옮긴 런타임 표현이며, 둘이 어긋나면 Java 계약 클래스를 고친다. 배열 상한·참조 존재·부분집합·우선순위 연속성 같은 의미 규칙은 서버 Validator가 담당한다.
+- JSON Schema 변경 금지: `docs/contracts/ai-weekly-report-snapshot-v1.schema.json`과 `docs/contracts/ai-weekly-report-analysis-v1.schema.json`은 이 교체 작업에서 변경하지 않는다.
+- 본 문서의 JSON 블록과 Java 코드 블록은 **설명용 예시**다. 예시와 JSON Schema가 다르면 Schema를 따른다.
 
 ---
 
@@ -27,6 +29,36 @@
 - JSON Schema와 Java 계약 드리프트 테스트 추가
 - Fake Gateway 기반 통합 테스트로 변경
 - Agent 실행 지침에 GitHub MCP, Context7 MCP, Maven CLI 추가
+
+---
+
+## 수정 이력 — D1~D7 제품 결정 확정 (2026-07-31)
+
+교체 작업 착수 전에 명세와 JSON Schema가 어긋나던 지점, 그리고 기존 구현과
+충돌하던 지점을 제품 결정으로 확정했다. 이후 구현은 이 결정을 따른다.
+
+- **D1 분석 상태**: `analysisStatus`는 JSON Schema 기준
+  `NORMAL / PARTIAL / NO_ACTION_REQUIRED`를 사용한다. 이전 초안의 `COMPLETE`는
+  폐기한다.
+- **D2 성과**: `achievement`는 **필수 객체**다. 성과가 없으면 `status = NONE`
+  으로 표현한다. `Optional<Achievement>`를 쓰지 않는다.
+- **D2 개인정보**: `safeLabel`에 **원본 업무 제목·일정 제목을 넣지 않는다.**
+  서버가 생성한 비식별 의미 라벨만 전송한다. 실제 제목은 분석이 끝난 뒤
+  서버가 `taskRef` / `eventRef`로 다시 결합해 표시한다.
+- **D3 기간**: 그룹 시간대 기준으로 **완료된 월요일~일요일**,
+  `[from, toExclusive)` 정확히 7일만 허용한다. 달 기준 절단 주차는 폐기한다.
+- **D4 lifecycle**: 초안 편집과 수동 확정을 제거한다. 생성 성공 또는 서버
+  fallback 성공 시 즉시 `FINALIZED`다. 재생성은 유지한다.
+- **D5 저장소**: 새 테이블 `ai_weekly_report_revision`을 `V34` migration으로
+  추가한다. 기존 `reports` 테이블의 데이터를 변환하지 않는다. 기존 AI 리포트
+  ID로 접근하면 `410 AI_REPORT_LEGACY_REVISION`을 반환한다.
+- **D6 설정**: 설정 키와 환경변수 이름은 **기존 `app.ai-report.*`와 기존
+  환경변수를 그대로 유지한다.** 이번 교체에서 바꾸는 것은 SDK 버전과 실행
+  정책(timeout 45초, maxRetries 1, `store(false)`)뿐이다.
+- **D7 다운로드**: **실제 PDF를 유지한다.** 기존 endpoint
+  `GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/pdf`와
+  `Content-Type: application/pdf`를 그대로 쓴다. HTML 다운로드로 후퇴하지
+  않는다.
 
 # 1. 최종 구현 결정
 
@@ -276,10 +308,13 @@ docs/contracts/ai-weekly-report-snapshot-v1.schema.json
 }
 ```
 
-규칙:
+규칙 (D3 확정):
 
 - 기간은 `[from, toExclusive)`
-- 주간 기간은 정확히 7일
+- `from`은 그룹 timezone 기준 **월요일**이어야 한다
+- `toExclusive`는 `from + 7일`이며 기간은 정확히 7일이다
+- 그룹 timezone 기준으로 **이미 완료된** 주간만 허용한다
+- 달 기준 주차(매월 1·8·15·22·29일 시작)와 월말 절단 주차는 허용하지 않는다
 - 날짜 계산은 그룹 timezone 기준
 - OpenAI가 기간을 재해석하지 않음
 
@@ -401,7 +436,7 @@ AI는 개인의 능력·성실성·태도를 평가하지 않는다.
 ```json
 {
   "ref": "TASK-104",
-  "safeLabel": "사용자 테스트 결과 반영",
+  "safeLabel": "승인 후 담당자가 없는 지연 업무",
   "category": "QA",
   "priority": "HIGH",
   "status": "TODO",
@@ -441,6 +476,8 @@ AI는 개인의 능력·성실성·태도를 평가하지 않는다.
 전송 금지:
 
 - 실제 이름
+- **업무 제목 원문**
+- **캘린더 일정 제목 원문**
 - 댓글 원문
 - 업무 description 원문
 - 첨부파일 본문
@@ -451,10 +488,39 @@ AI는 개인의 능력·성실성·태도를 평가하지 않는다.
 허용:
 
 - 익명 ref
-- 개인정보 필터를 거친 safeLabel
+- **서버가 생성한 비식별 의미 라벨(safeLabel)**
 - 구조화 category
 - 상태·수치·날짜
 - 집계된 협업 신호
+
+### safeLabel 규칙 (D2 확정)
+
+`safeLabel`은 업무나 일정을 **식별**하는 문자열이 아니라, 서버가 상태·담당·
+마감·체크리스트·보류 신호에서 조합한 **의미 유형 문장**이다. 원본 제목의
+어떤 조각도 포함하지 않는다.
+
+허용 예:
+
+```text
+승인 후 담당자가 없는 지연 업무
+외부 의존성으로 보류 중인 발표 준비 업무
+체크리스트가 시작되지 않은 임박 업무
+팀 전체가 참여하는 확정 회의
+```
+
+금지 예:
+
+```text
+사용자 테스트 결과 반영
+고객사 A 계약서 수정
+김민준 발표 자료 최종 검토
+전체 리허설
+```
+
+실제 제목과 실제 이름은 OpenAI 분석이 끝난 뒤 서버 renderer가 `taskRef`·
+`eventRef`·`memberRef`로 다시 결합해 사용자 화면과 PDF에만 표시한다(§8.1).
+이 규칙 덕분에 AI는 업무의 의미 유형을 파악하면서도 원문 개인정보 경계는
+기존 구현과 동일하게 유지된다.
 
 ## 4.9 Calendar event
 
@@ -462,7 +528,7 @@ AI는 개인의 능력·성실성·태도를 평가하지 않는다.
 {
   "ref": "EVENT-14",
   "type": "MEETING",
-  "safeLabel": "전체 리허설",
+  "safeLabel": "팀 전체가 참여하는 확정 회의",
   "startAt": "2026-07-31T14:00:00+09:00",
   "endAt": "2026-07-31T16:00:00+09:00",
   "ownerRef": "MEMBER-1",
@@ -576,7 +642,7 @@ docs/contracts/ai-weekly-report-analysis-v1.schema.json
 ```json
 {
   "schemaVersion": "ai-weekly-report-analysis.v1",
-  "analysisStatus": "COMPLETE",
+  "analysisStatus": "NORMAL",
   "executiveJudgment": {
     "headline": "승인 후 담당 연결과 보류 해제가 이번 주 우선 병목입니다.",
     "interpretation": "확정 데이터에서 미할당 지연 업무와 장기 보류 업무가 동시에 확인됩니다.",
@@ -589,6 +655,7 @@ docs/contracts/ai-weekly-report-analysis-v1.schema.json
     "missingEvidence": []
   },
   "achievement": {
+    "status": "AVAILABLE",
     "headline": "핵심 화면 구현 완료",
     "summary": "완료 상태와 체크리스트 완료가 모두 확인된 업무입니다.",
     "evidenceTaskRefs": ["TASK-101"]
@@ -641,7 +708,8 @@ docs/contracts/ai-weekly-report-analysis-v1.schema.json
 ## 6.3 출력 개수 제한
 
 - executiveJudgment: 정확히 1개
-- achievement: 0~1개
+- achievement: **항상 1개 객체**. 성과가 없으면 `status = NONE`이고
+  `headline`·`summary`는 빈 문자열, `evidenceTaskRefs`는 빈 배열이다 (D2)
 - issues: 0~3개
 - issue priority: P1부터 연속
 - taskRefs: 각 항목 최소 1개
@@ -864,19 +932,23 @@ OpenAI를 호출하지 않는다.
 ## 9.3 다운로드
 
 ```http
-GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/download
+GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/pdf
 ```
 
-규칙:
+규칙 (D7 확정):
 
 - FINALIZED만 다운로드
 - 저장 revision 사용
 - OpenAI 재호출 금지
 - `Cache-Control: private, no-store`
-- MVP Content-Type: `text/html;charset=UTF-8`
-- 파일명: `toesa-ai-weekly-{groupId}-{from}-{toInclusive}-ko.html`
+- Content-Type: `application/pdf`
+- 파일명: `ai-weekly-report-{from}-r{revision}.pdf`
+- 기존 endpoint 경로 `/{reportId}/pdf`를 그대로 유지한다
 
-실제 PDF 엔진 도입은 v7-2 계약의 필수 범위가 아니다.
+**실제 PDF를 유지한다.** 기존 구현의 OpenHTMLtoPDF 렌더러
+(`OpenHtmlReportPdfRenderer`)를 재사용하고, `renderWeeklyAi()`의 본문만 v7-2
+4페이지 구조로 교체한다. `renderBasic()`(기본 리포트)은 변경하지 않는다.
+HTML 다운로드로 후퇴하지 않는다.
 
 # 10. 공식 OpenAI Java SDK 연동
 
@@ -919,37 +991,51 @@ SDK는 Jackson 2.13.4 이상과 호환되며 런타임에 비호환 버전을 �
 
 ## 10.2 환경 변수와 애플리케이션 설정
 
-`.env` 또는 실행 환경:
+D6 확정: **설정 키와 환경변수 이름을 바꾸지 않는다.** 저장소가 이미 쓰는
+`app.ai-report.*` prefix와 기존 환경변수를 그대로 유지한다. 이름을 바꾸면
+배포 환경(`infra/single-ec2/compose.yml`, GitHub Actions secrets, 운영 `.env`)
+을 동시에 고쳐야 하고, 누락 시 운영에서 조용히 fallback으로만 동작한다.
+사용자 기능에는 아무 이득이 없다.
+
+`.env` 또는 실행 환경 (기존 이름 유지):
 
 ```env
 OPENAI_API_KEY=sk-proj-...
-OPENAI_REPORT_ENABLED=false
-OPENAI_REPORT_MODEL=<validated-model-id>
-OPENAI_REPORT_TIMEOUT_SECONDS=45
-OPENAI_REPORT_MAX_RETRIES=1
-OPENAI_REPORT_MAX_OUTPUT_TOKENS=3000
+AI_REPORT_ENABLED=false
+OPENAI_MODEL=<validated-model-id>
+OPENAI_REQUEST_TIMEOUT=45s
 ```
 
-`application.yml`:
+`backend/src/main/resources/application.properties` (기존 파일 형식 유지.
+이 저장소는 `application.yml`을 쓰지 않는다):
 
-```yaml
-openai:
-  report:
-    enabled: ${OPENAI_REPORT_ENABLED:false}
-    model: ${OPENAI_REPORT_MODEL:}
-    prompt-version: v7-2-prompt-001
-    timeout: ${OPENAI_REPORT_TIMEOUT_SECONDS:45s}
-    max-retries: ${OPENAI_REPORT_MAX_RETRIES:1}
-    max-output-tokens: ${OPENAI_REPORT_MAX_OUTPUT_TOKENS:3000}
+```properties
+app.ai-report.enabled=${AI_REPORT_ENABLED:false}
+app.ai-report.api-key=${OPENAI_API_KEY:}
+app.ai-report.model=${OPENAI_MODEL:}
+app.ai-report.request-timeout=${OPENAI_REQUEST_TIMEOUT:45s}
+app.ai-report.max-retries=${OPENAI_MAX_RETRIES:1}
+app.ai-report.max-output-tokens=${OPENAI_MAX_OUTPUT_TOKENS:3000}
+app.ai-report.prompt-version=v7-2-prompt-001
+```
+
+이번 교체에서 실제로 바뀌는 값은 다음뿐이다.
+
+```text
+openai-java  4.45.0 → 4.47.0
+request-timeout  90s → 45s
+maxRetries         0 → 1
+store(false)          유지
 ```
 
 규칙:
 
-- API 키는 `OPENAI_API_KEY`에서 SDK가 읽는다.
-- API 키를 `application.yml`, 로그, DB, Snapshot에 저장하지 않는다.
-- 모델 ID는 코드 상수 대신 설정으로 주입한다.
+- API 키는 `app.ai-report.api-key`(기본값은 `OPENAI_API_KEY` 환경변수)로 주입한다.
+- API 키를 설정 파일에 하드코딩하거나 로그·DB·Snapshot에 저장하지 않는다.
+- 모델 ID는 코드 상수 대신 설정으로 주입한다. 기본값을 두지 않는다.
 - 발표·운영 검증 시에는 평가를 통과한 모델 snapshot을 고정한다.
-- `OPENAI_REPORT_ENABLED=false`이면 API 호출 없이 Fallback을 사용한다.
+- `AI_REPORT_ENABLED=false`이거나 API 키·모델이 비어 있으면 API 호출 없이
+  Fallback을 사용한다.
 
 ## 10.3 설정 Properties
 
@@ -960,17 +1046,18 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 
-@ConfigurationProperties(prefix = "openai.report")
+@ConfigurationProperties(prefix = "app.ai-report")
 public record OpenAiReportProperties(
         boolean enabled,
+        String apiKey,
         String model,
         String promptVersion,
-        Duration timeout,
+        Duration requestTimeout,
         int maxRetries,
         long maxOutputTokens
 ) {
     public OpenAiReportProperties {
-        if (timeout == null) timeout = Duration.ofSeconds(45);
+        if (requestTimeout == null) requestTimeout = Duration.ofSeconds(45);
         if (maxRetries < 0 || maxRetries > 2) {
             throw new IllegalArgumentException("maxRetries must be between 0 and 2");
         }
@@ -999,14 +1086,21 @@ public class OpenAIConfiguration {
     @Bean
     OpenAIClient openAIClient(OpenAiReportProperties properties) {
         return OpenAIOkHttpClient.builder()
-                .fromEnv()
-                .timeout(properties.timeout())
+                .apiKey(properties.apiKey().isBlank()
+                        ? "not-configured" : properties.apiKey())
+                .timeout(properties.requestTimeout())
                 .maxRetries(properties.maxRetries())
                 .responseValidation(true)
                 .build();
     }
 }
 ```
+
+`fromEnv()`를 사용하지 않는다. `fromEnv()`는 `OPENAI_API_KEY`가 없으면 Bean
+생성 시점에 예외를 던져 Spring context 기동 자체를 막는다. §17의 SDK smoke
+test는 "실제 API 키 없이 실행"을 요구하므로, 키가 비어 있어도 Bean이 만들어지고
+호출 시점에 `OpenAiReportUnavailableException`으로 Fallback 전환되도록
+명시적 `.apiKey(...)`를 쓴다.
 
 SDK 기본 timeout은 10분이며 기본 재시도 횟수는 2회다. 주간 리포트 생성에서는 timeout을 45초, 재시도를 최대 1회로 제한한다. SDK가 재시도하는 연결 오류·408·409·429·5xx 외에 애플리케이션이 별도 중첩 재시도를 추가하지 않는다.
 
@@ -1044,14 +1138,19 @@ public final class AiWeeklyReportAnalysisContract {
     public String schemaVersion;
     public AnalysisStatus analysisStatus;
     public ExecutiveJudgment executiveJudgment;
-    public Optional<Achievement> achievement;
+    public Achievement achievement;
     public List<Issue> issues;
     public List<String> globalMissingEvidence;
 
     public enum AnalysisStatus {
-        COMPLETE,
+        NORMAL,
         PARTIAL,
         NO_ACTION_REQUIRED
+    }
+
+    public enum AchievementStatus {
+        AVAILABLE,
+        NONE
     }
 
     public enum Confidence {
@@ -1076,6 +1175,7 @@ public final class AiWeeklyReportAnalysisContract {
     }
 
     public static final class Achievement {
+        public AchievementStatus status;
         public String headline;
         public String summary;
         public List<String> evidenceTaskRefs;
@@ -1120,7 +1220,10 @@ public final class AiWeeklyReportAnalysisContract {
 
 - Java `Map` 사용 금지
 - 임의 key-value는 named entry list로 모델링
-- 선택 값은 `Optional<T>` 사용
+- 필드 이름과 enum 값은 저장 JSON Schema를 그대로 따른다
+- `Optional<T>`는 **JSON Schema가 nullable로 정의한 필드에만** 쓴다
+  (예: `Deadline.referenceRef`). 선택성을 status enum으로 표현한 필드
+  (예: `achievement.status`)에는 쓰지 않는다 (D2)
 - 모든 schema 대상 클래스는 최소 1개 이상의 공개 필드 또는 getter를 가진다.
 - enum은 OpenAI 출력에서 허용할 값만 정의한다.
 - 최대 배열 길이와 cross-field 규칙은 서버 Validator에서 검사한다.
@@ -1171,7 +1274,7 @@ public final class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
             throw new OpenAiReportUnavailableException("OpenAI report is disabled");
         }
         if (properties.model() == null || properties.model().isBlank()) {
-            throw new OpenAiReportUnavailableException("OPENAI_REPORT_MODEL is missing");
+            throw new OpenAiReportUnavailableException("app.ai-report.model is missing");
         }
 
         String snapshotJson = serialize(snapshot);
@@ -1318,7 +1421,20 @@ JSON Schema를 엄격히 준수한다.
 ai_weekly_report_revision
 ```
 
-권장 필드:
+D5 확정:
+
+- 이 테이블을 `backend/src/main/resources/db/migration/V34__create_ai_weekly_report_revision.sql`
+  로 **새로 추가**한다. 현재 Flyway head는 V33이다.
+- 기존 `reports` 테이블은 **스키마도 데이터도 변환하지 않는다.** 기존 행은
+  그대로 보존된다.
+- 기존 AI 리포트 ID로 조회·다운로드를 시도하면
+  `410 Gone` + 코드 `AI_REPORT_LEGACY_REVISION`을 반환한다. 이전 형식 리포트를
+  v7-2 화면으로 렌더링하지 않는다. 이렇게 해야 두 계약이 동시에 활성 상태로
+  남지 않는다.
+- 롤백은 `DROP TABLE ai_weekly_report_revision`과 Flyway history 행 삭제로
+  끝나며 기존 데이터 손실이 없다.
+
+필드:
 
 ```sql
 id BIGINT PRIMARY KEY
@@ -1351,6 +1467,24 @@ FINALIZED
 FAILED
 ```
 
+D4 확정: 상태축은 이 하나뿐이다. **초안 편집과 수동 확정을 제거한다.**
+생성이 성공하거나 서버 Fallback이 성공하면 즉시 `FINALIZED`이며, 팀장의 별도
+확정 조작이 필요하지 않다.
+
+기존 구현에서 제거되는 것:
+
+```text
+PATCH /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/draft
+POST  /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/finalization
+GET   /api/v1/groups/{groupId}/reports/ai-weekly/revisions
+editorVersion (낙관적 잠금)
+PublicationStatus (LEGACY / DRAFT / FINALIZED / SUPERSEDED 별도 축)
+DRAFT 상태와 supersede 전이
+프론트엔드 초안 편집기
+```
+
+재생성은 유지한다(§12.4).
+
 사용자 요청은 OpenAI 실패로 FAILED가 되지 않는다.
 
 OpenAI 실패 후 정상 Fallback 생성 시:
@@ -1378,11 +1512,12 @@ canonical snapshot JSON
 ## 12.4 재생성
 
 ```text
-regenerate=false → 기존 FINALIZED 재사용
-regenerate=true  → revision + 1
+최초 생성           → revision 1, FINALIZED
+regenerate=true     → revision 2, FINALIZED
+동일 source 재요청   → 기존 FINALIZED 반환 (OpenAI 재호출 없음)
 ```
 
-기존 revision은 삭제하지 않는다.
+기존 revision은 삭제하지 않고 덮어쓰지도 않는다.
 
 # 13. Java 패키지와 파일
 
@@ -1419,7 +1554,7 @@ backend/src/main/java/com/teamproject/report/
          └─ AiWeeklyReportAnalysisContract.java
 
 backend/src/main/resources/db/migration/
-└─ Vxx__create_ai_weekly_report_revision.sql
+└─ V34__create_ai_weekly_report_revision.sql
 
 backend/src/main/resources/ai/
 ├─ v7-2-prompt-001.txt
@@ -1505,7 +1640,7 @@ public AiWeeklyReportEnvelope generate(
 
 # 15. 권한
 
-MVP 권장:
+확정:
 
 | 기능 | LEADER | MEMBER | 비멤버 |
 |---|:---:|:---:|:---:|
@@ -1517,11 +1652,21 @@ MVP 권장:
 
 서버가 생성과 다운로드 시 그룹 membership을 다시 확인한다.
 
+기존 구현의 다음 게이트는 **그대로 유지한다**.
+
+- TEAM 그룹만 사용 가능 (`PERSONAL_GROUP_RESTRICTED`)
+- 유료 그룹만 사용 가능 (`AI_REPORT_PAID_REQUIRED`)
+- 같은 주간 성공 생성 3회 상한 (`AI_REPORT_WEEKLY_LIMIT`)
+
+D4로 DRAFT 상태가 사라지므로, 팀원에게 미확정 리포트를 숨기던
+`AI_REPORT_NOT_FINALIZED` 분기도 함께 사라진다. 생성이 끝나면 활성 팀원은
+바로 조회·다운로드할 수 있다.
+
 # 16. Fallback
 
 OpenAI 실패 조건:
 
-- `OPENAI_REPORT_ENABLED=false`
+- `AI_REPORT_ENABLED=false` (`app.ai-report.enabled=false`)
 - API key 또는 model 설정 누락
 - SDK timeout
 - SDK 내부 재시도 후 연결 실패
@@ -1657,7 +1802,12 @@ v7-2 구현은 다음이 모두 참일 때 완료다.
 - EOL된 `openai-java-spring-boot-starter`와 직접 `RestClient` 호출을 사용하지 않는다.
 - `OpenAIClient`는 singleton Bean 하나로 공유된다.
 - Responses API와 Java 타입 기반 Structured Outputs를 사용한다.
-- OpenAI 입력에 원문 댓글·설명·이름이 없다.
+- OpenAI 입력에 원문 댓글·설명·이름·업무 제목·일정 제목이 없다.
+- `safeLabel`이 서버 생성 비식별 의미 라벨이며 원본 제목 조각을 포함하지 않는다.
+- 기존 `app.ai-report.*` 설정 키와 환경변수 이름이 유지된다.
+- 다운로드가 기존 `/{reportId}/pdf` endpoint에서 실제 PDF를 반환한다.
+- 초안 편집·수동 확정 경로가 제거되고 생성 즉시 FINALIZED가 된다.
+- 기존 AI 리포트 ID 접근이 `410 AI_REPORT_LEGACY_REVISION`을 반환한다.
 - OpenAI 출력은 SDK 역직렬화와 business validation을 통과한다.
 - 모든 AI 판단은 실제 candidate와 task ref에 연결된다.
 - 수치·날짜는 renderer가 서버 데이터에서 삽입한다.
@@ -1751,36 +1901,41 @@ git diff --check
 - 변경 파일, 테스트 결과, SDK 버전, 남은 위험을 보고한다.
 ```
 
-# 21. 확정이 필요한 제품 결정
+# 21. 확정된 제품 결정
 
-## 21.1 보류 category
+이 절의 항목은 모두 확정되었다. 구현 중 임의로 바꾸지 않는다. 변경이
+필요하면 구현을 멈추고 계획 변경 승인을 받는다.
 
-선택지:
-
-1. task 도메인에 구조화 blocker category 추가
-2. 기존 자유 입력 reason을 서버에서 제한적으로 분류
-3. MVP에서는 `UNKNOWN`만 전송
-
-권장:
+## 21.1 보류 category — 확정
 
 ```text
-MVP: UNKNOWN 또는 명시 구조화 필드만 사용
-후속: task 도메인에 blocker category 추가
+MVP: tasks.blocker_type(V32 컬럼)을 history.holdReasonCategory enum으로 매핑한다.
+     매핑되지 않는 값은 UNKNOWN으로 전송한다.
+     자유 입력 보류 사유 원문은 전송하지 않는다.
+후속: task 도메인에 구조화 blocker category를 추가하는 작업은 별도 이슈로 분리한다.
 ```
 
-## 21.2 생성 권한
-
-선택지:
-
-1. LEADER 전용
-2. 그룹 리포트 조회 권한과 동일
-
-권장:
+## 21.2 생성 권한 — 확정
 
 ```text
 생성·재생성: LEADER
 조회·다운로드: 활성 그룹 MEMBER
+전제: TEAM 그룹 + 유료 플랜 (기존 게이트 유지)
 ```
+
+## 21.3 D1~D7 확정 결과
+
+| 결정 | 확정안 |
+|---|---|
+| D1 분석 상태 | JSON Schema 기준 `NORMAL / PARTIAL / NO_ACTION_REQUIRED` |
+| D2 성과 | `achievement`는 필수 객체. 없으면 `status = NONE` |
+| D2 개인정보 | `safeLabel`에 원본 업무·일정 제목을 넣지 않는다. 서버 생성 비식별 의미 라벨만 사용 |
+| D3 기간 | 그룹 시간대 기준 완료된 월요일~일요일, `[from, toExclusive)` 정확히 7일 |
+| D4 lifecycle | 초안 편집·수동 확정 제거. 생성 또는 fallback 성공 시 즉시 `FINALIZED`. 재생성은 유지 |
+| D5 저장소 | `V34` 신규 `ai_weekly_report_revision` 테이블. 기존 `reports` 데이터 변환 금지 |
+| D5 legacy | 기존 AI 리포트 ID 접근 시 `410 AI_REPORT_LEGACY_REVISION` |
+| D6 설정 | 기존 `app.ai-report.*`와 기존 환경변수 이름 유지. SDK 버전과 실행 정책만 변경 |
+| D7 다운로드 | 실제 PDF 유지. 기존 `/pdf`와 `application/pdf` 유지 |
 
 # 22. 최종 정의
 
