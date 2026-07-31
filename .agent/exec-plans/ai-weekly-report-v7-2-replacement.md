@@ -132,6 +132,46 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
   엔진 동작은 정상이나 3·4페이지가 비어 실물을 보여줄 수 없다. 코드가 아닌
   데이터 문제다.
 
+### 다음 작업 (미착수)
+
+- [ ] **🔴 산문 속 원시 ref 치환.** 배포 전 필수.
+  `AiWeeklyReportViewProjector`는 `evidenceTaskTitles`처럼 **구조화된 ref 필드만**
+  실제 제목으로 바꾼다. 모델이 문장 안에 직접 써 넣은 ref는 그대로 남아
+  사용자 문서에 내부 식별자가 찍힌다.
+
+  실제 관측(revision 17, `analysis_mode=OPENAI`):
+
+  ```text
+  TASK-6은 URGENT 우선순위이며 마감 임박 상태이지만 아직 TODO이다.
+  TASK-5가 2026-07-29에 기한 내 완료되어, 이번 기간 완료 업무는 1건이다.
+  ```
+
+  대상 텍스트 필드: `executiveJudgment.headline` / `.interpretation`,
+  `achievement.headline` / `.summary`, `issue.title` / `.impact` /
+  `.integratedJudgment` / `.requiredDecision`,
+  `decision.title` / `.question` / `.recommendation`.
+
+  방법: projection 단계에서 `TASK-\d+` / `MEMBER-\d+` / `EVENT-\d+`를 이미 만들어 둔
+  `taskTitleByRef` · `memberNameByRef` · `eventTitleByRef`로 치환한다. 매칭에
+  실패한 ref는 비식별 라벨로 바꾸고 원시 식별자를 남기지 않는다. 명세 §8.1
+  "재결합은 서버에서 수행한다"를 텍스트 필드까지 확장하는 작업이다.
+  프롬프트에도 "ref를 그대로 써도 되며 서버가 제목으로 치환한다"를 명시해
+  모델이 ref를 피하려다 근거 연결을 잃지 않게 한다.
+
+  회귀 테스트: ref를 포함한 분석 문장을 넣고 projection 결과에 `TASK-`,
+  `MEMBER-`, `EVENT-` 문자열이 남지 않는지 검사한다.
+
+- [ ] **🟡 위험·결정 페이지를 실증할 시연 데이터.**
+  `riskCandidates`가 생기려면 미지정·지연·승인 대기·체크리스트 0/N·미응답 멘션·
+  일정 충돌·부하 집중·전 기간 악화 중 하나가 필요하다. 지연과 미지정 업무를
+  포함한 완료 주간을 하나 만들어 3·4페이지를 실물로 확인한다.
+
+- [ ] 흐름 단계별 전 기간 델타와 일정 설명문은 계약에 없어 현재 대체 문구로
+  채운다. 살리려면 Snapshot JSON Schema 확장이 필요하다.
+
+- [ ] 시연·진단 과정에서 만든 `ai_weekly_report_revision` 행 정리
+  (group 4, id 4·7·8·9·11 등).
+
 
 
 ## Surprises & Discoveries
