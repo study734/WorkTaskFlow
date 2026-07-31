@@ -16,7 +16,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -50,21 +49,15 @@ public class AiWeeklyReportViewProjector {
 
         Long groupId = revision.getGroupId();
 
-        // 계약상 배열은 비어 있을 수 있고, 과거 revision에는 아예 없을 수도 있다.
-        List<SnapshotTask> snapshotTasks = snapshot.tasks() != null ? snapshot.tasks() : List.of();
-        List<SnapshotMember> snapshotMembers = snapshot.members() != null ? snapshot.members() : List.of();
-        List<CalendarConstraint> snapshotConstraints = snapshot.calendarConstraints() != null
-                ? snapshot.calendarConstraints() : List.of();
-
-        Map<String, String> taskTitleByRef = buildTaskTitleMap(groupId, snapshotTasks);
-        Map<String, String> memberNameByRef = buildMemberNameMap(groupId, snapshotMembers);
-        Map<String, String> eventTitleByRef = buildEventTitleMap(groupId, snapshotConstraints);
+        Map<String, String> taskTitleByRef = buildTaskTitleMap(groupId, snapshot.tasks());
+        Map<String, String> memberNameByRef = buildMemberNameMap(groupId, snapshot.members());
+        Map<String, String> eventTitleByRef = buildEventTitleMap(groupId, snapshot.calendarConstraints());
 
         SnapshotMetricsView metricsView = projectMetrics(snapshot.metrics());
         SnapshotComparisonView comparisonView = projectComparison(snapshot.comparison());
         SnapshotWorkflowView workflowView = projectWorkflow(snapshot.workflow());
 
-        List<SnapshotTaskView> taskViews = snapshotTasks.stream()
+        List<SnapshotTaskView> taskViews = snapshot.tasks().stream()
                 .map(t -> new SnapshotTaskView(
                         t.taskRef(),
                         taskTitleByRef.getOrDefault(t.taskRef(), t.safeLabel()),
@@ -84,7 +77,7 @@ public class AiWeeklyReportViewProjector {
                 ))
                 .toList();
 
-        List<SnapshotMemberView> memberViews = snapshotMembers.stream()
+        List<SnapshotMemberView> memberViews = snapshot.members().stream()
                 .map(m -> new SnapshotMemberView(
                         m.memberRef(),
                         memberNameByRef.getOrDefault(m.memberRef(), m.memberRef()),
@@ -98,7 +91,7 @@ public class AiWeeklyReportViewProjector {
                 ))
                 .toList();
 
-        List<CalendarConstraintView> calendarViews = snapshotConstraints.stream()
+        List<CalendarConstraintView> calendarViews = snapshot.calendarConstraints().stream()
                 .map(c -> new CalendarConstraintView(
                         c.eventRef(),
                         eventTitleByRef.getOrDefault(c.eventRef(), c.safeLabel()),
@@ -225,21 +218,17 @@ public class AiWeeklyReportViewProjector {
 
     private Map<String, String> buildTaskTitleMap(Long groupId, List<SnapshotTask> snapshotTasks) {
         if (snapshotTasks == null || snapshotTasks.isEmpty()) {
-            // 이후 조회는 null ref도 그대로 넘긴다. Map.of()는 null 키를 거부한다.
-            return new HashMap<>();
+            return Map.of();
         }
         List<Task> dbTasks = taskRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId);
-        Map<Long, Task> dbTaskById = new HashMap<>();
-        for (Task task : dbTasks) {
-            dbTaskById.putIfAbsent(task.getId(), task);
-        }
+        Map<Long, String> dbTaskTitleById = dbTasks.stream()
+                .collect(Collectors.toMap(Task::getId, Task::getTitle, (a, b) -> a));
 
         Map<String, String> map = new HashMap<>();
         for (SnapshotTask st : snapshotTasks) {
             Long id = parseRefId(st.taskRef(), "TASK");
-            Task dbTask = id == null ? null : dbTaskById.get(id);
-            if (dbTask != null && sameTask(dbTask, st)) {
-                map.put(st.taskRef(), dbTask.getTitle());
+            if (id != null && dbTaskTitleById.containsKey(id)) {
+                map.put(st.taskRef(), dbTaskTitleById.get(id));
             } else if (st.safeLabel() != null) {
                 map.put(st.taskRef(), st.safeLabel());
             }
@@ -247,24 +236,9 @@ public class AiWeeklyReportViewProjector {
         return map;
     }
 
-    /**
-     * ref가 가리키는 행이 정말 그 Snapshot 항목인지 생성 시각으로 확인한다.
-     *
-     * <p>ref 규칙이 바뀌기 전에 저장된 revision은 순번 ref를 담고 있어, 그대로 믿으면 같은
-     * 그룹의 전혀 다른 업무 제목을 보여 준다. 대조에 실패하면 제목 대신 비식별 라벨로 되돌린다.
-     */
-    private boolean sameTask(Task dbTask, SnapshotTask snapshotTask) {
-        String snapshotCreatedAt = snapshotTask.createdAt();
-        if (snapshotCreatedAt == null || dbTask.getCreatedAt() == null) {
-            return true;
-        }
-        return snapshotCreatedAt.equals(dbTask.getCreatedAt().toInstant(ZoneOffset.UTC).toString());
-    }
-
     private Map<String, String> buildMemberNameMap(Long groupId, List<SnapshotMember> snapshotMembers) {
         if (snapshotMembers == null || snapshotMembers.isEmpty()) {
-            // 이후 조회는 null ref도 그대로 넘긴다. Map.of()는 null 키를 거부한다.
-            return new HashMap<>();
+            return Map.of();
         }
         List<GroupMember> dbMembers = memberRepository.findAllByGroupIdAndStatusOrderByRoleAscJoinedAtAsc(groupId, GroupMember.Status.ACTIVE);
         Map<Long, String> dbMemberNameById = new HashMap<>();
@@ -285,8 +259,7 @@ public class AiWeeklyReportViewProjector {
 
     private Map<String, String> buildEventTitleMap(Long groupId, List<CalendarConstraint> constraints) {
         if (constraints == null || constraints.isEmpty()) {
-            // 이후 조회는 null ref도 그대로 넘긴다. Map.of()는 null 키를 거부한다.
-            return new HashMap<>();
+            return Map.of();
         }
         LocalDateTime farPast = LocalDateTime.of(2000, 1, 1, 0, 0);
         LocalDateTime farFuture = LocalDateTime.of(2100, 1, 1, 0, 0);

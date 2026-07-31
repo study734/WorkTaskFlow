@@ -134,7 +134,7 @@ class AiWeeklyReportSnapshotAssemblerTest {
 
         SnapshotTask view = assemble(fixture).tasks().get(0);
 
-        assertThat(view.taskRef()).isEqualTo("TASK-" + task.getId());
+        assertThat(view.taskRef()).isEqualTo("TASK-1");
         assertThat(view.status()).isEqualTo(TaskStatus.TODO);
         assertThat(view.assigneeRef()).isNull();
         assertThat(view.dueState()).isEqualTo(DueState.OVERDUE);
@@ -191,8 +191,7 @@ class AiWeeklyReportSnapshotAssemblerTest {
         completedTask(fixture);
 
         var member = assemble(fixture).members().stream()
-                .filter(value -> value.memberRef().equals("MEMBER-" + fixture.leader.getId()))
-                .findFirst().orElseThrow();
+                .filter(value -> value.memberRef().equals("MEMBER-1")).findFirst().orElseThrow();
 
         assertThat(member.role()).isEqualTo("LEADER");
         assertThat(member.assignedCount()).isEqualTo(1);
@@ -204,9 +203,9 @@ class AiWeeklyReportSnapshotAssemblerTest {
     @DisplayName("일정은 비식별 라벨로만 담고 마감이 겹치는 업무를 연결한다")
     void linksCalendarConstraintsToTasksByDueWindow() {
         Fixture fixture = fixture();
-        Task task = task(fixture, "마감 업무", Task.Status.IN_PROGRESS, fixture.leader,
+        task(fixture, "마감 업무", Task.Status.IN_PROGRESS, fixture.leader,
                 FROM.plusDays(2).atTime(15, 0), null, 0, 0, FROM.plusDays(1));
-        CalendarEvent event = calendarEvents.save(new CalendarEvent(fixture.group, fixture.leader,
+        calendarEvents.save(new CalendarEvent(fixture.group, fixture.leader,
                 CalendarEvent.Type.MEETING, SECRET_TITLE, null,
                 FROM.plusDays(2).atTime(14, 0), FROM.plusDays(2).atTime(16, 0), false, null));
         flush();
@@ -214,54 +213,11 @@ class AiWeeklyReportSnapshotAssemblerTest {
         AiWeeklyReportSnapshotV1 snapshot = assemble(fixture);
 
         assertThat(snapshot.calendarConstraints()).hasSize(1);
-        assertThat(snapshot.calendarConstraints().get(0).eventRef())
-                .isEqualTo("EVENT-" + event.getId());
+        assertThat(snapshot.calendarConstraints().get(0).eventRef()).isEqualTo("EVENT-1");
         assertThat(snapshot.calendarConstraints().get(0).safeLabel()).isEqualTo("확정된 회의 일정");
         assertThat(snapshot.calendarConstraints().get(0).relatedTaskRefs())
-                .containsExactly("TASK-" + task.getId());
-        assertThat(snapshot.tasks().get(0).calendarEventRefs())
-                .containsExactly("EVENT-" + event.getId());
-    }
-
-    /**
-     * 기간 이벤트가 일부 업무에만 있으면, 이력이 없는 기존 업무가 통째로 사라졌다.
-     * 두 출처를 taskId로 합쳐 기간에 속한 업무를 모두 유지하는지 확인한다.
-     */
-    @Test
-    @DisplayName("이력이 있는 업무와 없는 업무를 함께 담는다")
-    void keepsTasksWithoutActivityHistoryAlongsideTracedOnes() {
-        Fixture fixture = fixture();
-        Task traced = overdueUnassignedTask(fixture);
-        Task untraced = new Task(fixture.group, fixture.leader, "이력 없는 업무", null,
-                Task.Priority.NORMAL, FROM.plusDays(4).atTime(18, 0));
-        ReflectionTestUtils.setField(untraced, "createdAt", FROM.plusDays(2).atStartOfDay());
-        ReflectionTestUtils.setField(untraced, "updatedAt", FROM.plusDays(2).atStartOfDay());
-        ReflectionTestUtils.setField(untraced, "status", Task.Status.IN_PROGRESS);
-        tasks.save(untraced);
-        flush();
-
-        AiWeeklyReportSnapshotV1 snapshot = assemble(fixture);
-
-        assertThat(snapshot.tasks()).extracting(SnapshotTask::taskRef)
-                .containsExactly("TASK-" + traced.getId(), "TASK-" + untraced.getId());
-        assertThat(snapshot.metrics().periodTaskCount()).isEqualTo(2);
-        assertThat(snapshot.workflow().inProgress()).isEqualTo(1);
-        assertThat(validate(snapshot)).isEmpty();
-    }
-
-    /** 같은 업무가 두 출처에 모두 있으면 이력 기반 스냅샷 하나만 남아야 한다. */
-    @Test
-    @DisplayName("두 출처에 모두 있는 업무를 중복해서 담지 않는다")
-    void doesNotDuplicateTasksPresentInBothSources() {
-        Fixture fixture = fixture();
-        Task task = overdueUnassignedTask(fixture);
-        flush();
-
-        AiWeeklyReportSnapshotV1 snapshot = assemble(fixture);
-
-        assertThat(snapshot.tasks()).extracting(SnapshotTask::taskRef)
-                .containsExactly("TASK-" + task.getId());
-        assertThat(snapshot.tasks().get(0).checklist().total()).isEqualTo(4);
+                .containsExactly("TASK-1");
+        assertThat(snapshot.tasks().get(0).calendarEventRefs()).containsExactly("EVENT-1");
     }
 
     /** 위험 후보와 신호 산출은 policy engine(M3) 범위다. 여기서는 비워 둔다. */

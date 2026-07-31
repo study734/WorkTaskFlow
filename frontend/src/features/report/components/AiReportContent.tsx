@@ -1,10 +1,13 @@
 import { AiWeeklyReportView } from '../../../api/reportApi';
-import { addDays } from '../../../app/week';
 
-/** API는 배타적 종료일을 주고, 화면과 PDF는 포함 종료일을 보여 준다. */
 function formatPeriodDisplay(from: string, toExclusive: string): string {
   if (!toExclusive) return from;
-  return `${from} ~ ${addDays(toExclusive, -1)}`;
+  const d = new Date(`${toExclusive}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return `${from} ~ ${toExclusive}`;
+  d.setDate(d.getDate() - 1);
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const date = String(d.getDate()).padStart(2, '0');
+  return `${from} ~ ${d.getFullYear()}-${month}-${date}`;
 }
 
 export function AiReportContent({ report, print = false }: {

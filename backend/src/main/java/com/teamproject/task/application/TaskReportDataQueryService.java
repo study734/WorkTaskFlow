@@ -70,10 +70,9 @@ public class TaskReportDataQueryService implements TaskReportDataQuery {
                 .values().stream()
                 .map(this::snapshot)
                 .toList();
-        // 활동 이력이 있든 없든 기간에 걸친 업무는 모두 보고해야 한다. 이력이 일부 업무에만
-        // 있을 때 나머지 업무를 잃지 않도록 legacy 스냅샷은 항상 계산한다. 어느 쪽을 쓸지는
-        // 호출자가 taskId 기준으로 합쳐 정한다.
-        List<TaskSnapshot> legacy = legacySnapshots(groupId, legacyFrom, legacyTo);
+        List<TaskSnapshot> legacy = activity.isEmpty()
+                ? legacySnapshots(groupId, legacyFrom, legacyTo)
+                : List.of();
         return new PeriodData(trackingStartedAt, activity, latest, legacy,
                 history.stream().map(this::event).toList());
     }

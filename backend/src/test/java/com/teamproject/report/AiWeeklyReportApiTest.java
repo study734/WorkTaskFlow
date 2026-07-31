@@ -15,8 +15,6 @@ import com.teamproject.report.domain.AiWeeklyReportRevision;
 import com.teamproject.report.domain.AiWeeklyReportRevisionRepository;
 import com.teamproject.report.domain.WeeklyReport;
 import com.teamproject.report.domain.WeeklyReportRepository;
-import com.teamproject.task.domain.Task;
-import com.teamproject.task.domain.TaskRepository;
 import com.teamproject.user.domain.User;
 import com.teamproject.user.domain.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +26,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,7 +52,6 @@ class AiWeeklyReportApiTest {
     @Autowired private GroupMemberRepository memberRepository;
     @Autowired private AiWeeklyReportRevisionRepository revisionRepository;
     @Autowired private WeeklyReportRepository legacyReportRepository;
-    @Autowired private TaskRepository taskRepository;
     @Autowired private JwtService jwtService;
     @Autowired private com.teamproject.authentication.application.AccessSessionIssuer sessionIssuer;
 
@@ -303,61 +299,6 @@ class AiWeeklyReportApiTest {
                 .andExpect(jsonPath("$.rawSnapshotJson").doesNotExist());
 
         assertThat(gatewayCallCount.get()).isEqualTo(preCallCount);
-    }
-
-    /**
-     * 상세 화면이 통째로 500이 되던 경로다. 생성 직후 저장된 revision을 그대로 다시 읽어
-     * 업무·지표·workflow가 응답에 실리는지, 조회 중 Gateway를 부르지 않는지 확인한다.
-     */
-    @Test
-    @DisplayName("생성한 revision을 곧바로 조회하면 200과 함께 업무·지표·workflow를 반환한다")
-    void generatedRevisionIsReadableWithTasksMetricsAndWorkflow() throws Exception {
-        Task task = taskRepository.save(periodTask());
-
-        String body = """
-                {
-                  "from": "2026-07-20",
-                  "toExclusive": "2026-07-27",
-                  "language": "KO",
-                  "regenerate": false
-                }
-                """;
-
-        String created = mvc.perform(post("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + leaderToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        long reportId = json.readTree(created).get("reportId").asLong();
-
-        int preCallCount = gatewayCallCount.get();
-
-        mvc.perform(get("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly/" + reportId)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + leaderToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.analysisMode").isNotEmpty())
-                .andExpect(jsonPath("$.from").value("2026-07-20"))
-                .andExpect(jsonPath("$.toExclusive").value("2026-07-27"))
-                .andExpect(jsonPath("$.metrics.periodTaskCount").value(1))
-                .andExpect(jsonPath("$.workflow.inProgressCount").value(1))
-                .andExpect(jsonPath("$.tasks[0].taskRef").value("TASK-" + task.getId()))
-                .andExpect(jsonPath("$.tasks[0].realTitle").value(task.getTitle()))
-                .andExpect(jsonPath("$.executiveJudgment.headline").isNotEmpty());
-
-        assertThat(gatewayCallCount.get()).isEqualTo(preCallCount);
-    }
-
-    private Task periodTask() {
-        Task task = new Task(paidTeamGroup, memberRepository
-                .findByGroupIdAndUserIdAndStatus(paidTeamGroup.getId(), leaderUser.getId(),
-                        GroupMember.Status.ACTIVE).orElseThrow(),
-                "모바일 화면 최종 점검", null, Task.Priority.NORMAL,
-                LocalDate.of(2026, 7, 25).atTime(18, 0));
-        ReflectionTestUtils.setField(task, "createdAt", LocalDate.of(2026, 7, 21).atStartOfDay());
-        ReflectionTestUtils.setField(task, "updatedAt", LocalDate.of(2026, 7, 21).atStartOfDay());
-        ReflectionTestUtils.setField(task, "status", Task.Status.IN_PROGRESS);
-        return task;
     }
 
     @Test

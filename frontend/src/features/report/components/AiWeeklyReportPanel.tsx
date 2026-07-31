@@ -6,12 +6,7 @@ import {
   reportApi,
 } from '../../../api/reportApi';
 import { useLanguage } from '../../../app/LanguageContext';
-import {
-  isCompletedWeek,
-  lastCompletedWeekStart,
-  weekEndInclusive,
-  weekToExclusive,
-} from '../../../app/week';
+import { lastCompletedWeekStart } from '../../../app/week';
 import { AiReportContent } from './AiReportContent';
 
 type Props = {
@@ -74,17 +69,20 @@ export function AiWeeklyReportPanel({
     return () => { active = false; };
   }, [canViewAi, groupId, initialReportId]);
 
-  const weekCompleted = isCompletedWeek(weekFrom, group?.timezone);
-  const recentCompletedStart = lastCompletedWeekStart(group?.timezone);
+  function getToExclusive(fromStr: string): string {
+    const d = new Date(fromStr);
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
+  }
 
   async function handleGenerate(regenerate: boolean) {
     if (!canManageAi) return;
-    const toExclusive = weekToExclusive(weekFrom);
-    if (!weekCompleted) {
-      setMessage(t(
-        `AI 주간 리포트는 완료된 주간만 생성할 수 있습니다. 최근 완료 주간: ${recentCompletedStart} ~ ${weekEndInclusive(recentCompletedStart)}`,
-        `AI weekly reports can only be generated for completed weeks. Most recent completed week: ${recentCompletedStart} ~ ${weekEndInclusive(recentCompletedStart)}`,
-      ));
+    const toExclusive = getToExclusive(weekFrom);
+    const toExclusiveDate = new Date(`${toExclusive}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (toExclusiveDate.getTime() > today.getTime()) {
+      setMessage(t('AI 주간 리포트는 완료된 주간만 생성할 수 있습니다.', 'AI weekly reports can only be generated for completed weeks.'));
       return;
     }
     setSubmitting(true);
@@ -168,11 +166,7 @@ export function AiWeeklyReportPanel({
                   <button
                     className="primary"
                     type="button"
-                    disabled={submitting || loading || !weekCompleted}
-                    title={weekCompleted ? undefined : t(
-                      `완료된 주간만 생성할 수 있습니다. 최근 완료 주간: ${recentCompletedStart} ~ ${weekEndInclusive(recentCompletedStart)}`,
-                      `Only completed weeks can be generated. Most recent completed week: ${recentCompletedStart} ~ ${weekEndInclusive(recentCompletedStart)}`,
-                    )}
+                    disabled={submitting || loading}
                     onClick={() => void handleGenerate(false)}
                     style={{ background: '#2563eb', color: '#fff', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600 }}
                   >
@@ -183,7 +177,7 @@ export function AiWeeklyReportPanel({
                     <button
                       className="secondary"
                       type="button"
-                      disabled={submitting || loading || !weekCompleted}
+                      disabled={submitting || loading}
                       onClick={() => void handleGenerate(true)}
                       style={{ background: '#475569', color: '#fff', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600 }}
                     >
@@ -206,15 +200,6 @@ export function AiWeeklyReportPanel({
               </button>
             )}
           </div>
-
-          {canManageAi && !weekCompleted && (
-            <p style={{ color: '#d97706', fontSize: '13px' }}>
-              {t(
-                `AI 주간 리포트는 완료된 주간만 생성할 수 있습니다. 최근 완료 주간: ${recentCompletedStart} ~ ${weekEndInclusive(recentCompletedStart)}`,
-                `AI weekly reports can only be generated for completed weeks. Most recent completed week: ${recentCompletedStart} ~ ${weekEndInclusive(recentCompletedStart)}`,
-              )}
-            </p>
-          )}
 
           {loading && <p>{t('리포트를 불러오는 중...', 'Loading report...')}</p>}
           {message && <p className="error" style={{ color: '#dc2626', fontWeight: 600 }}>{message}</p>}
