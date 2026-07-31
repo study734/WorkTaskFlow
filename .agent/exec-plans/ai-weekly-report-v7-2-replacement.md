@@ -83,7 +83,9 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
   `dependency:get -Dartifact=com.openai:openai-java:4.47.0`이 실패해
   **아무 파일도 수정하지 않고 중단**했고, 명세와 ExecPlan에서 버전 승격을
   제거했다. M1의 `SDK 버전 채택 게이트` 참조.
-- [ ] M1 OpenAI SDK 클라이언트 설정 격리와 실행 정책 고정 (버전 승격 제외)
+- [x] (2026-07-31 18:30+09:00) **M1 완료.** OpenAI SDK 클라이언트 설정을
+  `infrastructure/openai`로 격리하고 실행 정책을 테스트로 고정했다.
+  버전 승격은 제외했다(R16).
 - [ ] M2 Snapshot assembler와 bulk evidence query
 - [ ] M3 Policy engine (risk candidate 생성)
 - [ ] M4 Deterministic fallback + business validator
@@ -1022,8 +1024,10 @@ Spring context가 기동해야 한다).
 **D6 확정에 따라 설정 키 이름은 바꾸지 않는다.** `application.properties`의
 `app.ai-report.*` prefix와 기존 환경변수를 그대로 쓰고, 값만 조정한다:
 `app.ai-report.request-timeout`을 `90s` → `45s`,
-`app.ai-report.max-retries=1`과 `app.ai-report.max-output-tokens=3000`,
-`app.ai-report.prompt-version=v7-2-prompt-001`을 추가한다.
+`base-url`은 기존 지원을 유지한다(테스트·로컬 프록시, 사내 API Gateway, 호환
+endpoint, 관측용 중계 계층에서 필요하다).
+`max-retries`는 `OpenAiReportProperties` 기본값으로 제공하고 고정 행을 추가하지
+않는다. `max-output-tokens`와 `prompt-version`은 M7로 미룬다(위 편차 참조).
 `infra/single-ec2/compose.yml`과 GitHub Actions secrets는 **변경하지 않는다**.
 
 `OpenAiReportConfigurationTest`를 추가한다: API 키 없이 context 기동,
@@ -1043,6 +1047,33 @@ Spring context가 기동해야 한다).
 수용: 트리에 `openai-java`가 `backend/pom.xml` 지정 버전으로 하나만, EOL
 Starter 없음, Jackson 2.17.2, configuration test 통과, adapter test 9/9와
 M0 test 8/8 유지.
+
+**결과 (2026-07-31 완료)**
+
+- `openai-java:4.45.0` 단일 경로, EOL Starter 없음, Jackson 2.17.2
+- timeout 기본값 45초
+- `maxRetries` 기본값 1, 명시적 `0` 허용, 허용 범위 0~3
+- `responseValidation(true)` 활성화
+- API 키 없이 Spring context 기동, `openAiReportClient` Bean 1개
+- 기존 `app.ai-report.*`와 `base-url` 유지, 환경변수 이름 불변
+- `OpenAiReportConfigurationTest` 9/9
+- `OpenAiResponsesNarrativeAdapterTest` 9/9, `AiWeeklyReportSchemaFixtureTest` 8/8
+- 전체 스위트 188건, 실패 1, 오류 0. 신규 회귀 0
+- 잔존 실패는 study734/WorkTaskFlow#4 1건뿐
+
+**편차 (M7로 이동)**
+
+- `app.ai-report.max-output-tokens`: 현재 adapter가 `5000`을 직접 쓰므로 설정을
+  추가해도 동작하지 않는 dead configuration이 된다. M1 범위 밖. M7에서 신규
+  gateway 계약과 함께 설정화 여부를 결정한다.
+- `app.ai-report.prompt-version`: M7에서 prompt resource가 도입될 때 추가한다.
+  그 전까지 소비자가 없다.
+- `app.ai-report.max-retries`: `OpenAiReportProperties` 기본값으로 1을 제공하고
+  외부 설정이 있을 때만 덮어쓴다. `application.properties`에 불필요한 고정 행을
+  추가하지 않는다.
+
+사용되지 않는 설정을 미리 추가하지 않는다. 운영자에게 없는 제어 가능성을
+약속하기 때문이다.
 
 #### SDK 버전 채택 게이트
 
@@ -1793,6 +1824,14 @@ spec §10.6의 같은 필드:
 
 
 ## Revision note
+
+- 2026-07-31 (18:30+09:00) — M1 완료 기록. `OpenAiReportProperties`와
+  `OpenAIConfiguration`을 `infrastructure/openai`에 추가하고 기존
+  `OpenAiReportConfiguration`을 제거했다. Bean 이름 `openAiReportClient` 유지,
+  timeout 45초, maxRetries 기본 1(허용 0~3, 명시적 0 존중),
+  `responseValidation(true)`, API 키 없이 context 기동.
+  `base-url`은 기존 지원을 유지했다. `max-output-tokens`와 `prompt-version`은
+  소비자가 없어 M7로 미뤘다. M1 milestone에 결과와 편차를 기록했다.
 
 - 2026-07-31 (17:30+09:00) — SDK 버전 정본 정정과 M1 재정의.
   `dependency:get -Dartifact=com.openai:openai-java:4.47.0`이 Maven Central에서
