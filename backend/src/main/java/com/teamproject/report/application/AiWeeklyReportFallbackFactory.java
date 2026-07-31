@@ -119,8 +119,7 @@ public class AiWeeklyReportFallbackFactory {
                     priority,
                     candidate.candidateRef(),
                     candidate.severity(),
-                    ko ? "위험 후보 (" + candidate.riskCode() + ")"
-                            : "Risk candidate (" + candidate.riskCode() + ")",
+                    riskCodeLabel(candidate.riskCode(), ko),
                     ko ? "지정된 신호 및 마감 상태에 따른 서버 기본 검토 항목입니다."
                             : "A server baseline review item from the recorded signals and due state.",
                     Confidence.HIGH,
@@ -144,6 +143,28 @@ public class AiWeeklyReportFallbackFactory {
                 issues,
                 List.of()
         );
+    }
+
+    /**
+     * policy engine의 riskCode 12개를 사람이 읽는 제목으로 옮긴다.
+     * 이 문자열은 이슈 제목으로 그대로 사용자 문서에 나가므로 영문 상수를 남기지 않는다.
+     */
+    private String riskCodeLabel(String riskCode, boolean ko) {
+        return switch (riskCode) {
+            case "APPROVED_UNASSIGNED_OVERDUE" -> ko ? "담당자 없이 마감이 지난 업무" : "Overdue task with no owner";
+            case "APPROVED_UNASSIGNED" -> ko ? "담당자가 지정되지 않은 업무" : "Task with no owner";
+            case "OVERDUE_ACTIVE" -> ko ? "마감이 지난 진행 업무" : "Active task past its due date";
+            case "WORKLOAD_CONCENTRATION" -> ko ? "한 사람에게 몰린 업무" : "Work concentrated on one member";
+            case "COMPLETION_RATE_DROP" -> ko ? "완료율 하락" : "Completion rate drop";
+            case "SCHEDULE_CONFLICT" -> ko ? "일정과 겹치는 업무" : "Task conflicting with a scheduled event";
+            case "APPROVAL_PENDING" -> ko ? "승인 대기 중인 업무" : "Task awaiting approval";
+            case "CHECKLIST_NOT_STARTED" -> ko ? "체크리스트가 시작되지 않은 업무" : "Task with an untouched checklist";
+            case "BACKLOG_GROWTH" -> ko ? "쌓이는 미착수 업무" : "Growing backlog";
+            case "UNRESOLVED_MENTION" -> ko ? "응답이 없는 멘션" : "Unanswered mention";
+            case "ON_HOLD_LONG" -> ko ? "오래 보류된 업무" : "Task on hold for a long time";
+            case "RESOURCE_MISSING" -> ko ? "관련 자료가 없는 업무" : "Task with no linked resource";
+            default -> ko ? "서버 기본 검토 항목" : "Server baseline review item";
+        };
     }
 
     private static final int HEADLINE_MAX = 160;
