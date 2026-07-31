@@ -7,7 +7,7 @@
 - 입력 계약: `ai-weekly-report-snapshot.v1`
 - OpenAI 출력 계약: `ai-weekly-report-analysis.v1`
 - 프롬프트 버전: `v7-2-prompt-001`
-- OpenAI 연동: 공식 `com.openai:openai-java:4.47.0`
+- OpenAI 연동: 공식 `com.openai:openai-java`. **버전 정본은 `backend/pom.xml`의 `<openai-java.version>`이다.** 이 문서는 버전을 고정하지 않는다.
 - OpenAI API: Responses API + Java 타입 기반 Structured Outputs
 - Spring 연동: `OpenAIClient` Bean 직접 등록. EOL된 Spring Boot Starter 사용 금지
 - 명세 수정일: 2026-07-31 (D1~D7 제품 결정 확정 반영)
@@ -21,7 +21,7 @@
 ## 수정 이력 — 공식 OpenAI Java SDK 반영
 
 - `Spring RestClient` 직접 호출 권고 제거
-- 공식 `com.openai:openai-java:4.47.0` 채택
+- 공식 `com.openai:openai-java` 채택 (버전은 `backend/pom.xml`이 정본)
 - Responses API + Java 타입 기반 Structured Outputs로 변경
 - Spring Boot 2.7 전용 EOL Starter 사용 금지 명시
 - `OpenAIClient` singleton Bean과 timeout/retry 정책 추가
@@ -60,6 +60,31 @@
   `Content-Type: application/pdf`를 그대로 쓴다. HTML 다운로드로 후퇴하지
   않는다.
 
+---
+
+## 수정 이력 — SDK 버전 정본 정정 (2026-07-31)
+
+초안은 `com.openai:openai-java:4.47.0`을 필수로 요구했다. 그러나 2026-07-31
+확인 시점에 Maven Central에서 해당 아티팩트가 해석되지 않는다.
+
+    cd backend
+    ./mvnw --batch-mode dependency:get -Dartifact=com.openai:openai-java:4.47.0
+    [ERROR] Could not find artifact com.openai:openai-java:jar:4.47.0 in central
+
+Maven Central 메타데이터 기준 `com.openai:openai-java`의 `latest`와 `release`는
+모두 `4.45.0`(2026-07-23 배포)이며 `4.46.x`와 `4.47.0`은 배포되어 있지 않다.
+공식 GitHub에는 `v4.47.0` 릴리스가 있으나 Maven 아티팩트가 없으므로 프로젝트에서
+재현 가능한 버전이 아니다.
+
+정정 내용:
+
+- 이 문서는 SDK 버전을 고정하지 않는다. **버전 정본은 `backend/pom.xml`의
+  `<openai-java.version>`이다.**
+- v7-2 빌드 기준 버전은 `4.45.0`이다.
+- 버전 채택 게이트를 명시한다. **Maven Central dependency resolution이 성공하는
+  버전만 채택한다.** 실패하면 어떤 파일도 수정하지 않고 중단한다.
+- 완료 조건과 Agent 지침의 `4.47.0` 고정 문구를 제거한다.
+
 # 1. 최종 구현 결정
 
 v7-2는 다음 파이프라인으로 구현한다.
@@ -74,7 +99,7 @@ AiWeeklyReportSnapshotV1
         ↓
 서버 규칙 기반 위험 후보 생성
         ↓
-공식 OpenAI Java SDK 4.47.0
+공식 OpenAI Java SDK
 Responses API
 Java 타입 기반 Structured Outputs
         ↓
@@ -96,7 +121,7 @@ OpenAI 응답을 바로 HTML에 삽입하지 않는다. 공식 SDK가 생성한 
 
 ## SDK 선택
 
-- 사용: `com.openai:openai-java:4.47.0`
+- 사용: `com.openai:openai-java` (버전은 `backend/pom.xml` 정본, v7-2 빌드 기준 `4.45.0`)
 - 사용 API: Responses API
 - 사용 출력 방식: `ResponseCreateParams.Builder.text(AiWeeklyReportAnalysisContract.class)`
 - 사용 클라이언트: `OpenAIOkHttpClient`
@@ -954,11 +979,36 @@ HTML 다운로드로 후퇴하지 않는다.
 
 ## 10.1 Maven 의존성
 
-현재 공식 SDK 버전은 2026-07-31 확인 기준 `4.47.0`이다.
+## SDK 버전 정본과 채택 게이트
+
+**SDK 버전의 정본은 이 문서가 아니라 `backend/pom.xml`의 `<openai-java.version>`이다.**
+이 명세는 특정 버전을 필수로 요구하지 않는다.
+
+v7-2 빌드 기준 버전은 `4.45.0`이다. 2026-07-31 기준 Maven Central의
+`com.openai:openai-java` 최신 릴리스가 `4.45.0`이며, 이것이 프로젝트에서
+재현 가능한 버전이다.
+
+버전 채택 게이트: **어떤 버전이든 Maven Central에서 dependency resolution이
+성공해야 채택한다.** 공식 GitHub에 릴리스 태그가 있어도 Maven Central에
+아티팩트가 배포되기 전에는 `<openai-java.version>`을 올리지 않는다. 승격 전에
+반드시 다음을 통과시킨다.
+
+```bash
+cd backend
+./mvnw --batch-mode dependency:get -Dartifact=com.openai:openai-java:<version>
+```
+
+이 명령이 실패하면 어떤 파일도 수정하지 않고 중단한다.
+
+참고: 공식 GitHub에는 `v4.47.0` 릴리스가 존재하지만 2026-07-31 확인 시점에
+Maven Central에서는 `com.openai:openai-java:4.47.0`이 해석되지 않았다
+(`Could not find artifact ... in central`). 따라서 v7-2는 `4.45.0`을 기준으로
+빌드한다. Central에 배포되면 위 게이트를 통과시킨 뒤 별도 작업으로 승격한다.
 
 ```xml
 <properties>
-    <openai-java.version>4.47.0</openai-java.version>
+    <!-- 버전 정본. 승격은 Maven Central resolution 성공을 전제로 한다. -->
+    <openai-java.version>4.45.0</openai-java.version>
 </properties>
 
 <dependencies>
@@ -1022,7 +1072,6 @@ app.ai-report.prompt-version=v7-2-prompt-001
 이번 교체에서 실제로 바뀌는 값은 다음뿐이다.
 
 ```text
-openai-java  4.45.0 → 4.47.0
 request-timeout  90s → 45s
 maxRetries         0 → 1
 store(false)          유지
@@ -1314,7 +1363,7 @@ public final class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
 
 주의:
 
-- 실제 SDK 4.47.0의 컴파일 타입을 IDE와 공식 예제로 확인한 뒤 import를 확정한다.
+- 실제 사용 중인 SDK 버전의 컴파일 타입을 IDE와 공식 예제로 확인한 뒤 import를 확정한다.
 - `instructions`에는 고정 Developer Prompt만 넣는다.
 - `input`에는 Snapshot JSON만 넣어 Prompt Caching 친화적인 순서를 유지한다.
 - `store(false)`를 명시한다.
@@ -1751,7 +1800,7 @@ DB를 포함하고 `AiWeeklyReportGateway`만 Fake로 교체한다. 테스트에
 - timeout 45초 적용
 - maxRetries 1 적용
 - application/domain 패키지에서 `com.openai.*` import가 없는지 ArchUnit 또는 정적 검사
-- Maven dependency tree에 `openai-java` 4.47.0이 하나만 존재
+- Maven dependency tree에 `openai-java`가 `backend/pom.xml`이 지정한 버전으로 하나만 존재
 - EOL Starter 의존성이 존재하지 않음
 - Jackson 호환성 검사 비활성화 옵션을 사용하지 않음
 
@@ -1798,7 +1847,7 @@ v7-2 구현은 다음이 모두 참일 때 완료다.
 
 - v7의 4페이지 구조가 유지된다.
 - 페이지 1은 기존 기본 리포트와 동일한 서버 수치를 사용한다.
-- 공식 `com.openai:openai-java:4.47.0`을 사용한다.
+- 공식 `com.openai:openai-java`를 `backend/pom.xml`이 지정한 버전으로 사용한다.
 - EOL된 `openai-java-spring-boot-starter`와 직접 `RestClient` 호출을 사용하지 않는다.
 - `OpenAIClient`는 singleton Bean 하나로 공유된다.
 - Responses API와 Java 타입 기반 Structured Outputs를 사용한다.
@@ -1821,7 +1870,7 @@ v7-2 구현은 다음이 모두 참일 때 완료다.
 
 # 19. 구현 순서
 
-1. `pom.xml`에 `com.openai:openai-java:4.47.0` 추가
+1. `pom.xml`에 `com.openai:openai-java` 추가 (버전은 Maven Central resolution이 성공하는 값)
 2. Maven dependency tree와 Jackson 호환성 확인
 3. JSON Schema와 fixture를 테스트 리소스에 고정
 4. `AiWeeklyReportAnalysisContract`와 contract drift test 구현
@@ -1864,7 +1913,7 @@ server fallback, 공식 OpenAI Java SDK 기반 Responses API,
 
 도구:
 - GitHub MCP로 현재 repo 파일과 member1 브랜치 상태를 먼저 확인한다.
-- Context7 MCP에서 `openai/openai-java` 4.47.0의 Responses API와
+- Context7 MCP에서 `openai/openai-java`의 Responses API와
   `ResponsesStructuredOutputsExample`을 확인한다.
 - Maven CLI로 의존성·테스트·실행을 검증한다.
 
@@ -1877,7 +1926,7 @@ git diff --check
 제약:
 - main 브랜치 직접 작업 금지. 사용자에게 허용된 member1 브랜치만 사용.
 - 기존 /reports/download 응답과 기본 HTML 스타일을 변경하지 않는다.
-- 공식 `com.openai:openai-java:4.47.0`을 사용한다.
+- 공식 `com.openai:openai-java`를 사용한다. 버전은 `backend/pom.xml`이 정본이며 임의로 올리지 않는다.
 - `openai-java-spring-boot-starter` 사용 금지.
 - OpenAI 직접 HTTP `RestClient` 구현 금지.
 - application/domain 계층에서 `com.openai.*` import 금지.
@@ -1892,7 +1941,7 @@ git diff --check
 
 완료:
 - mvn -f backend/pom.xml test 통과
-- dependency tree에서 openai-java 4.47.0 하나만 확인
+- dependency tree에서 openai-java가 `backend/pom.xml` 지정 버전으로 하나만 확인
 - EOL Starter 의존성 없음
 - 정상/timeout/invalid ref/no baseline/duplicate request/download 테스트 통과
 - 동일 snapshot 재요청 시 OpenAI Gateway 호출 0회

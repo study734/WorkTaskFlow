@@ -75,10 +75,15 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
   판정하고 처리했다. 자세한 내용은 위험 R9 참조.
 - [x] (2026-07-31 16:00+09:00) **M0 완료**: 계약 기준선을 fixture와 테스트로
   고정했다. `AiWeeklyReportSchemaFixtureTest` 8/8 통과.
-- [ ] **다음 승인 게이트는 M1이 아니다.** `OpenAiResponsesNarrativeAdapterTest`
-  5건이 환경 의존으로 실패 중이라 SDK를 4.47.0으로 올려도 회귀를 확인할 수
-  없다. 이 테스트를 신뢰 가능한 상태로 만드는 것이 M1의 선행 조건이다.
-- [ ] M1 SDK 4.47.0 승격과 클라이언트 설정 격리 (선행 조건 해소 후)
+- [x] (2026-07-31 17:00+09:00) **위험 R15 해소.**
+  `OpenAiResponsesNarrativeAdapterTest`의 loopback 의존성을 제거하고 SDK 경계
+  mock으로 재작성했다. 9/9 통과하며 M1의 선행 조건이 충족되었다.
+  커밋 `f2f9feb`, study734/WorkTaskFlow#3 close.
+- [x] (2026-07-31 17:30+09:00) SDK 버전 채택 게이트를 실행했다.
+  `dependency:get -Dartifact=com.openai:openai-java:4.47.0`이 실패해
+  **아무 파일도 수정하지 않고 중단**했고, 명세와 ExecPlan에서 버전 승격을
+  제거했다. M1의 `SDK 버전 채택 게이트` 참조.
+- [ ] M1 OpenAI SDK 클라이언트 설정 격리와 실행 정책 고정 (버전 승격 제외)
 - [ ] M2 Snapshot assembler와 bulk evidence query
 - [ ] M3 Policy engine (risk candidate 생성)
 - [ ] M4 Deterministic fallback + business validator
@@ -231,7 +236,7 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
   독립 작업이어야 한다.
   Date/Author: 2026-07-31 / PM
 
-- Decision: M1(SDK 4.47.0 승격)보다 `OpenAiResponsesNarrativeAdapterTest` 5건의
+- Decision: M1(SDK 승격)보다 `OpenAiResponsesNarrativeAdapterTest` 5건의
   환경 의존 실패 해소를 먼저 처리한다.
   Rationale: 그 5건이 SDK 승격의 회귀를 확인해 줄 유일한 테스트다. 실행되지
   않는 상태로 버전을 올리면 승격 근거가 없다. 위험 R15.
@@ -251,7 +256,7 @@ M0(계약 기준선 고정)까지 완료했다. M1은 시작하지 않았다.
 
 달성한 것: 기존 구현 전체(백엔드 24개 main 파일, 9개 test 파일, 프론트엔드
 10개 파일, migration V30~V33)와 v7-2 정본(spec 1799줄 + Schema 2개)의 대응표,
-v7-2 정본 내부의 계약 충돌 목록, SDK 4.45.0→4.47.0 영향 분석, 11개 milestone
+v7-2 정본 내부의 계약 충돌 목록, SDK 버전 분석, 11개 milestone
 분할과 각 단계의 검증 명령을 확보했다.
 
 남은 것: **다음 게이트는 M1이 아니다.** `OpenAiResponsesNarrativeAdapterTest`
@@ -339,7 +344,7 @@ v7-2 파이프라인:
     확정 업무 데이터
     → AiWeeklyReportSnapshotV1        (ai-weekly-report-snapshot.v1)
     → 서버 규칙 기반 riskCandidates 생성
-    → 공식 openai-java 4.47.0 Responses API + Java 타입 Structured Outputs
+    → 공식 openai-java Responses API + Java 타입 Structured Outputs
     → AiWeeklyReportAnalysisContract  (ai-weekly-report-analysis.v1)
     → 서버 의미 검증 (ref 존재 / 허용 코드 부분집합 / 상태 / 비교 / 우선순위 / 날짜)
     → 통과: OPENAI 분석 저장 / 실패: SERVER_FALLBACK 분석 저장
@@ -751,7 +756,7 @@ E2E 15건 세부 조치:
    실제 label·숫자·날짜·이름을 삽입한다.
 
 
-## OpenAI SDK 4.45.0 → 4.47.0 영향 분석
+## OpenAI SDK 버전 분석 (4.45.0 기준, 승격 보류)
 
 ### 현재 확인된 사실
 
@@ -772,7 +777,11 @@ E2E 15건 세부 조치:
 
 ### 결론
 
-1. **버전 변경 자체는 저위험이다.** `4.45.0 → 4.47.0`은 같은 major·minor 계열의
+0. **승격은 보류되었다 (2026-07-31).** `4.47.0`이 Maven Central에 없어 채택할
+   수 없다. 아래 1~4항은 Central에 배포된 뒤 승격을 재검토할 때를 위한 분석으로
+   남긴다. 현재 v7-2 빌드 기준은 `4.45.0`이다.
+
+1. **승격 자체는 저위험으로 보인다.** `4.45.0 → 4.47.0`은 같은 major·minor 계열의
    patch 승격이며, 현재 코드가 이미 쓰는 API 표면
    (`OpenAIOkHttpClient.builder()`, `ResponseCreateParams.builder().text(Class)`,
    `StructuredResponseCreateParams<T>`, `StructuredResponse<T>`,
@@ -817,7 +826,8 @@ E2E 15건 세부 조치:
 
     cd backend
     ./mvnw --batch-mode dependency:tree -Dincludes=com.openai
-    # 기대: openai-java:4.47.0 단 하나. 4.45.0 이나 spring-boot-starter 없음.
+    # 기대: openai-java가 backend/pom.xml 지정 버전으로 단 하나.
+    #       EOL spring-boot-starter 없음.
 
     ./mvnw --batch-mode dependency:tree -Dincludes=com.fasterxml.jackson.core
     # 기대: jackson-core / jackson-databind / jackson-annotations 모두 2.17.2
@@ -886,7 +896,6 @@ E2E 15건 세부 조치:
   기존 환경변수(`AI_REPORT_ENABLED`, `OPENAI_API_KEY`, `OPENAI_MODEL`,
   `OPENAI_REQUEST_TIMEOUT`)를 유지한다. 이번 교체에서 바뀌는 값은 다음뿐이다.
 
-      openai-java     4.45.0 → 4.47.0
       request-timeout    90s → 45s
       maxRetries           0 → 1
       store(false)             유지
@@ -989,44 +998,70 @@ JSON Schema 검증 라이브러리가 없었다. `dependency:tree`로 단일 트
 사용(D2 — "승인 후 담당자가 없는 지연 업무" 등), 기간은
 `2026-07-20`(월) ~ `2026-07-27` 배타 7일(D3).
 
-### M1 — SDK 4.47.0 승격과 클라이언트 격리
+### M1 — OpenAI SDK 클라이언트 설정 격리와 실행 정책 고정
 
-목표: 공식 SDK 버전을 올리고 `OpenAIClient` Bean을 v7-2 정책으로 맞춘다.
+목표: `OpenAIClient` Bean 설정을 `infrastructure/openai` 패키지로 격리하고
+v7-2 실행 정책(timeout 45초, maxRetries 1, responseValidation)을 테스트로
+고정한다.
 
-작업: `backend/pom.xml`의 `<openai-java.version>`을 `4.47.0`으로 올린다
-(이 파일의 `java.version` 미커밋 변경은 건드리지 않는다 — 위험 R9의 격리
-절차를 먼저 수행한다).
-`infrastructure/openai/OpenAiReportProperties.java`(§10.3)와
-`infrastructure/openai/OpenAIConfiguration.java`(§10.4)를 추가한다.
-`requestTimeout=45s`, `maxRetries=1`, `responseValidation(true)`,
-명시적 `.apiKey(...)` + blank fallback (D6 — `fromEnv()` 금지).
+**버전 승격은 이 milestone의 범위가 아니다.** 초안은 `4.45.0 → 4.47.0`
+승격을 M1에 넣었으나, `4.47.0`은 Maven Central에 배포되어 있지 않아 채택할 수
+없다. 아래 `SDK 버전 채택 게이트` 참조. `backend/pom.xml`은 변경하지 않는다.
+
+작업: `infrastructure/openai/OpenAiReportProperties.java`(§10.3)와
+`infrastructure/openai/OpenAIConfiguration.java`(§10.4)를 추가하고 기존
+`infrastructure/OpenAiReportConfiguration.java`를 제거한다. Bean 이름
+`openAiReportClient`는 유지한다 — 기존 adapter가
+`@Qualifier("openAiReportClient")`로 주입받고 있으며 adapter production 코드는
+이 단계에서 건드리지 않는다.
+
+정책: `requestTimeout` 기본 45초, `maxRetries` 1, `responseValidation(true)`,
+명시적 `.apiKey(...)` + blank fallback (D6 — `fromEnv()` 금지. 키가 없어도
+Spring context가 기동해야 한다).
 
 **D6 확정에 따라 설정 키 이름은 바꾸지 않는다.** `application.properties`의
 `app.ai-report.*` prefix와 기존 환경변수를 그대로 쓰고, 값만 조정한다:
 `app.ai-report.request-timeout`을 `90s` → `45s`,
 `app.ai-report.max-retries=1`과 `app.ai-report.max-output-tokens=3000`,
-`app.ai-report.prompt-version=v7-2-prompt-001`을 추가하며,
-`app.ai-report.model`의 하드코딩 기본값 `gpt-5.6-luna`를 제거해 빈 값으로
-둔다. `infra/single-ec2/compose.yml`과 GitHub Actions secrets는 **변경하지
-않는다**.
+`app.ai-report.prompt-version=v7-2-prompt-001`을 추가한다.
+`infra/single-ec2/compose.yml`과 GitHub Actions secrets는 **변경하지 않는다**.
 
-`OpenAiClientSmokeTest`를 추가한다: `OPENAI_API_KEY` 없이 context 기동,
-`OpenAIClient` Bean 1개, properties 바인딩(`app.ai-report.*`),
-application/domain 패키지에서 `com.openai.*` import가 없음을 정적 검사.
+`OpenAiReportConfigurationTest`를 추가한다: API 키 없이 context 기동,
+`openAiReportClient` Bean 1개, properties 바인딩과 기본값, timeout·maxRetries
+적용.
 
-이후 존재하는 것: v7-2가 요구하는 단일 SDK 클라이언트와 그 정책이 테스트로
-고정된다.
+이후 존재하는 것: SDK 의존이 `infrastructure.openai` 아래로 모이고 실행 정책이
+테스트로 고정된다.
 
 검증:
 
     cd backend
     ./mvnw --batch-mode dependency:tree -Dincludes=com.openai
     ./mvnw --batch-mode dependency:tree -Dincludes=com.fasterxml.jackson.core
-    ./mvnw --batch-mode test -Dtest=OpenAiClientSmokeTest
+    ./mvnw --batch-mode test -Dtest=OpenAiReportConfigurationTest
 
-수용: 트리에 `openai-java:4.47.0` 하나만, Jackson 2.17.2, smoke test 통과,
-기존 테스트 스위트가 여전히 컴파일된다(이 단계에서 legacy adapter는 아직 살아
-있다).
+수용: 트리에 `openai-java`가 `backend/pom.xml` 지정 버전으로 하나만, EOL
+Starter 없음, Jackson 2.17.2, configuration test 통과, adapter test 9/9와
+M0 test 8/8 유지.
+
+#### SDK 버전 채택 게이트
+
+버전 승격은 **Maven Central resolution 성공**을 전제로 한다. 승격 전에 반드시
+아래를 통과시키고, 실패하면 어떤 파일도 수정하지 않고 중단한다.
+
+    cd backend
+    ./mvnw --batch-mode dependency:get -Dartifact=com.openai:openai-java:<version>
+
+2026-07-31 실행 결과:
+
+    [ERROR] Could not find artifact com.openai:openai-java:jar:4.47.0 in central
+            (https://repo.maven.apache.org/maven2)
+
+Maven Central 메타데이터의 `latest`/`release`가 모두 `4.45.0`(2026-07-23 배포)
+이고 `4.46.x`·`4.47.0`은 배포되어 있지 않다. 공식 GitHub에는 `v4.47.0` 릴리스가
+있으나 Maven 아티팩트가 없어 재현 가능한 버전이 아니다. 게이트 실패에 따라
+**아무 파일도 수정하지 않고 중단했고**, M1에서 버전 승격을 제거했다.
+Central에 배포되면 이 게이트를 통과시킨 뒤 별도 작업으로 승격한다.
 
 ### M2 — Snapshot assembler와 bulk evidence query
 
@@ -1429,7 +1464,8 @@ diff 검토 (저장소 루트):
 
 - [ ] `cd backend && ./mvnw --batch-mode test` 전체 통과.
 - [ ] `./mvnw --batch-mode dependency:tree -Dincludes=com.openai`가
-      `openai-java:4.47.0` 하나만 출력하고 EOL Starter가 없다.
+      `openai-java`를 `backend/pom.xml` 지정 버전으로 하나만 출력하고
+      EOL Starter가 없다.
 - [ ] `npm --prefix frontend ci && npm --prefix frontend run build` 성공.
 - [ ] `grep -rn "NarrativeContract\|ReportContracts\|MemberPerformanceRule" backend/src`
       무출력.
@@ -1483,7 +1519,7 @@ diff 검토 (저장소 루트):
   v7-2 Snapshot/Analysis로 **무손실 변환이 불가능하다**. in-place 변환은 사실상
   데이터 파기다. 완화: D5를 in-place로 결정하지 않는다. 결정된다면 사전 DB
   백업을 필수 절차로 명시한다.
-- **R4 (호환성, 중간).** `victools jsonschema-module-jackson`이 4.47.0에서
+- **R4 (호환성, 보류).** 승격 시 `victools jsonschema-module-jackson`이
   올라가면 SDK 생성 스키마 세부가 달라져 저장 Schema와 drift가 생길 수 있다.
   완화: M0의 drift test가 CI에서 항상 돌게 한다.
 - **R5 (가용성, 중간).** `OpenAIOkHttpClient.builder().fromEnv()`는
@@ -1559,16 +1595,29 @@ diff 검토 (저장소 루트):
   한 검증 가능한 결과 = 가능하면 한 커밋. `M0~M11을 구현해` 같은 지시를
   금지한다(`Progress`의 실행 규칙 항목).
 
-- **R15 (검증 공백, 높음 — M1 차단).** `OpenAiResponsesNarrativeAdapterTest`
-  5건이 현재 환경에서 `Unable to establish loopback connection`으로 전부
-  실패한다. M1은 OpenAI SDK를 `4.45.0 -> 4.47.0`으로 올리는데, **그 변경의
-  회귀를 확인해 줄 유일한 테스트가 바로 이 5건이다.** 실행되지 않는 상태로
-  SDK를 올리면 승격 근거가 없다.
-  완화: M1 착수 전에 별도 Issue로 해결한다. 해결 기준은 (a) 로컬 loopback
-  포트에 의존하지 않는 Fake/Stub transport를 쓰거나 현재 환경에서 반복적으로
-  성공하는 테스트 서버 구조로 바꾸고, (b) 정상·refusal·incomplete·malformed·
-  429·5xx·timeout을 모두 검증하며, (c) 실제 OpenAI API를 호출하지 않는 것이다.
+- **R15 (검증 공백, 해소됨 — 2026-07-31).**
+  `OpenAiResponsesNarrativeAdapterTest` 5건이 `Unable to establish loopback
+  connection`으로 전부 실패해 SDK 관련 변경의 회귀를 확인할 수단이 없었다.
+  해소: `com.sun.net.httpserver.HttpServer`와 임의 포트 의존을 제거하고
+  `OpenAIClient`·`ResponseService` 두 인터페이스만 Mockito로 대체했다. 응답은
+  기존 wire JSON을 공식 SDK의 `Response`로 역직렬화한 뒤
+  `StructuredResponse<T>`의 public 생성자로 감싸 만들므로, 중첩
+  output/message/content 탐색·Structured Output 역직렬화·refusal 판별·usage
+  집계는 여전히 SDK의 실제 구현이 수행한다. 시나리오별로 9개 테스트로 분리해
+  9/9 통과하며 실제 OpenAI API는 호출하지 않는다.
+  근거: 커밋 `f2f9feb`, study734/WorkTaskFlow#3 (closed).
+  결과: 전체 스위트의 Errors가 5 → 0이 되었고 실패는
+  study734/WorkTaskFlow#4 1건만 남는다.
 
+- **R16 (계획 정확성, 해소됨 — 2026-07-31).** 기준 커밋 `bfca414`의 명세가
+  `com.openai:openai-java:4.47.0`을 필수로 요구했으나 그 아티팩트는 Maven
+  Central에 존재하지 않는다. 계획이 **실재하지 않는 버전을 완료 조건으로
+  고정**하고 있었고, 그대로 두면 M1을 어떤 방식으로도 완료 처리할 수 없었다.
+  해소: SDK 버전 정본을 `backend/pom.xml`로 옮기고, 명세에서 버전 고정 문구를
+  제거했으며, Maven Central resolution 성공을 버전 채택 게이트로 명시했다.
+  M1에서 버전 승격을 제거하고 milestone 이름을 실제 범위에 맞게 바꿨다.
+  잔여 완화: 외부 문서가 말하는 버전을 그대로 믿지 않는다. 승격 전에 반드시
+  `dependency:get`으로 실재 여부를 먼저 확인한다.
 
 ## Idempotence and Recovery
 
@@ -1577,8 +1626,8 @@ diff 검토 (저장소 루트):
   `rm .agent/exec-plans/ai-weekly-report-v7-2-replacement.md`.
 - M0~M4는 순수 추가이며 기존 코드를 건드리지 않는다. 실패하면 새로 추가한
   파일만 지우면 된다.
-- M1의 `backend/pom.xml` 버전 변경은 되돌리기 쉽다(`4.47.0` → `4.45.0`).
-  단 같은 파일의 `java.version` 미커밋 변경을 함께 되돌리지 않도록 주의한다.
+- M1은 `backend/pom.xml`을 변경하지 않는다. 되돌릴 것은 새로 추가한
+  `infrastructure/openai/` 파일과 제거한 `OpenAiReportConfiguration`뿐이다.
 - M5의 V34는 `CREATE TABLE`만 한다. 롤백은 `DROP TABLE
   ai_weekly_report_revision` + `DELETE FROM flyway_schema_history WHERE version='34'`.
   기존 데이터 손실 없음. 부분 실패 시 Flyway가 해당 버전을 실패로 기록하므로
@@ -1595,7 +1644,8 @@ diff 검토 (저장소 루트):
 기존에 이미 있고 그대로 쓰는 것:
 
 - `org.springframework.boot:spring-boot-starter-parent:3.3.5` (Jackson 2.17.2 관리)
-- `com.openai:openai-java` — 현재 `4.45.0`, v7-2 요구 `4.47.0`
+- `com.openai:openai-java` — `4.45.0`. 버전 정본은 `backend/pom.xml`이며
+  Maven Central resolution이 성공하는 버전만 채택한다
 - `io.github.openhtmltopdf:openhtmltopdf-pdfbox:1.1.8` — PDF 렌더링. D7 확정으로 유지
 - `org.flywaydb:flyway-core` + `flyway-mysql` — migration, 현재 head V33
 - `com.teamproject.group.application.GroupAuthorization.requireActiveMember` —
@@ -1673,7 +1723,7 @@ M0도 M1도 막지 않는다. 별도 Issue로 분리한다.
 쪽 문제로 보인다).
 
 M0는 막지 않지만 **M1 착수 전에 반드시 해결한다.** M1은 OpenAI SDK를
-`4.45.0 -> 4.47.0`으로 올리는 작업이고, 그 승격의 회귀를 확인해 줄 유일한
+올릴 때 그 승격의 회귀를 확인해 줄 유일한
 테스트가 이 5건이기 때문이다. 위험 R15 참조.
 별도 Issue 제목:
 `test(report): remove environment-dependent loopback failures from OpenAI adapter tests`
@@ -1743,6 +1793,18 @@ spec §10.6의 같은 필드:
 
 
 ## Revision note
+
+- 2026-07-31 (17:30+09:00) — SDK 버전 정본 정정과 M1 재정의.
+  `dependency:get -Dartifact=com.openai:openai-java:4.47.0`이 Maven Central에서
+  실패해(아티팩트 부재) 지시대로 **아무 파일도 수정하지 않고 중단**했다.
+  Central 메타데이터의 `latest`/`release`는 모두 `4.45.0`(2026-07-23)이다.
+  이에 따라 SDK 버전 정본을 `docs/spec/AiWeeklyReport.md`가 아니라
+  `backend/pom.xml`로 옮기고, Maven Central resolution 성공을 버전 채택
+  게이트로 명시했다. M1에서 버전 승격을 제거하고 milestone 이름을
+  `OpenAI SDK 클라이언트 설정 격리와 실행 정책 고정`으로 바꿨다.
+  영향 분석 절은 승격 재검토용으로 남기되 제목과 도입부에 보류 상태를 명시했다.
+  위험 R15(adapter 테스트가 M1 차단)를 해소로 기록하고, R16(계획이 실재하지
+  않는 버전을 완료 조건으로 고정)을 신설·해소로 기록했다.
 
 - 2026-07-31 (16:00+09:00) — M0 완료 및 작업 트리 판정 결과 반영.
   `Progress`에 push·트리 정리·M0 완료를 기록하고, 다음 게이트가 M1이 아니라
