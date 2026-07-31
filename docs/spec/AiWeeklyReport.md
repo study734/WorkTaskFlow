@@ -880,6 +880,28 @@ TASK-104
 
 재결합은 서버에서 수행한다.
 
+재결합 대상은 `evidenceTaskRefs` 같은 구조화 ref 필드뿐 아니라 **모델이 문장 안에
+직접 써 넣은 ref까지** 포함한다. 대상 텍스트 필드는 다음과 같다.
+
+- `executiveJudgment.headline` / `.interpretation`
+- `achievement.headline` / `.summary`
+- `issue.title` / `.impact` / `.integratedJudgment` / `.requiredDecision`
+- `decision.title` / `.question` / `.recommendation`
+
+프롬프트는 모델에게 ref를 그대로 쓰라고 지시한다. ref를 피하려다 근거 연결을 잃거나
+제목을 지어내는 쪽이 더 나쁘다.
+
+해석에 실패한 ref도 원시 식별자를 남기지 않는다. 문서 언어에 맞춘 비식별 라벨
+(`확인할 수 없는 업무` / `Unidentified task` 등)로 바꾼다.
+
+```text
+입력  TASK-6은 URGENT 우선순위이며 아직 TODO이다.
+출력  결제 실패 로그 확인은 URGENT 우선순위이며 아직 TODO이다.
+```
+
+> 개정 사유: projector가 구조화 필드만 재결합해서 사용자 문서에 `TASK-6` 같은 내부
+> 식별자가 그대로 찍혔다. 8.1의 서버 책임을 텍스트 필드까지 넓힌다.
+
 ## 8.2 사용자 본문에서 숨길 정보
 
 - Structured Outputs

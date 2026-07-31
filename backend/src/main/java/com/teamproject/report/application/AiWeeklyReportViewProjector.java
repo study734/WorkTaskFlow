@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -60,6 +62,8 @@ public class AiWeeklyReportViewProjector {
         Map<String, String> memberNameByRef = buildMemberNameMap(groupId, snapshotMembers);
         Map<String, String> eventTitleByRef = buildEventTitleMap(groupId, snapshotConstraints);
 
+        RefResolver refs = new RefResolver(taskTitleByRef, memberNameByRef, eventTitleByRef, isKorean(snapshot));
+
         SnapshotMetricsView metricsView = projectMetrics(snapshot.metrics());
         SnapshotComparisonView comparisonView = projectComparison(snapshot.comparison());
         SnapshotWorkflowView workflowView = projectWorkflow(snapshot.workflow());
@@ -72,7 +76,8 @@ public class AiWeeklyReportViewProjector {
                         t.status() != null ? t.status().name() : null,
                         t.priority(),
                         t.assigneeRef(),
-                        memberNameByRef.getOrDefault(t.assigneeRef(), t.assigneeRef()),
+                        // 담당자가 없으면 null을 그대로 넘겨 화면이 "미지정"으로 그리게 둔다.
+                        t.assigneeRef() == null ? null : refs.memberName(t.assigneeRef()),
                         t.createdAt(),
                         t.dueAt(),
                         t.completedAt(),
@@ -87,7 +92,7 @@ public class AiWeeklyReportViewProjector {
         List<SnapshotMemberView> memberViews = snapshotMembers.stream()
                 .map(m -> new SnapshotMemberView(
                         m.memberRef(),
-                        memberNameByRef.getOrDefault(m.memberRef(), m.memberRef()),
+                        refs.memberName(m.memberRef()),
                         m.role(),
                         m.assignedCount(),
                         m.activeCount(),
@@ -114,18 +119,16 @@ public class AiWeeklyReportViewProjector {
         if (analysis.executiveJudgment() != null) {
             List<String> evidenceRefs = analysis.executiveJudgment().evidenceTaskRefs() != null
                     ? analysis.executiveJudgment().evidenceTaskRefs() : List.of();
-            List<String> evidenceTitles = evidenceRefs.stream()
-                    .map(ref -> taskTitleByRef.getOrDefault(ref, "확인할 수 없는 업무 (" + ref + ")"))
-                    .toList();
+            List<String> evidenceTitles = evidenceRefs.stream().map(refs::taskTitle).toList();
 
             ejView = new ExecutiveJudgmentView(
-                    analysis.executiveJudgment().headline(),
-                    analysis.executiveJudgment().interpretation(),
+                    refs.resolve(analysis.executiveJudgment().headline()),
+                    refs.resolve(analysis.executiveJudgment().interpretation()),
                     analysis.executiveJudgment().metricRefs() != null ? analysis.executiveJudgment().metricRefs().stream().map(Enum::name).toList() : List.of(),
                     evidenceRefs,
                     evidenceTitles,
                     analysis.executiveJudgment().confidence() != null ? analysis.executiveJudgment().confidence().name() : "MEDIUM",
-                    analysis.executiveJudgment().missingEvidence() != null ? analysis.executiveJudgment().missingEvidence() : List.of()
+                    refs.resolveAll(analysis.executiveJudgment().missingEvidence())
             );
         }
 
@@ -133,14 +136,12 @@ public class AiWeeklyReportViewProjector {
         if (analysis.achievement() != null) {
             List<String> evidenceRefs = analysis.achievement().evidenceTaskRefs() != null
                     ? analysis.achievement().evidenceTaskRefs() : List.of();
-            List<String> evidenceTitles = evidenceRefs.stream()
-                    .map(ref -> taskTitleByRef.getOrDefault(ref, "확인할 수 없는 업무 (" + ref + ")"))
-                    .toList();
+            List<String> evidenceTitles = evidenceRefs.stream().map(refs::taskTitle).toList();
 
             achView = new AchievementView(
                     analysis.achievement().status() != null ? analysis.achievement().status().name() : "NONE",
-                    analysis.achievement().headline(),
-                    analysis.achievement().summary(),
+                    refs.resolve(analysis.achievement().headline()),
+                    refs.resolve(analysis.achievement().summary()),
                     evidenceRefs,
                     evidenceTitles
             );
@@ -150,11 +151,10 @@ public class AiWeeklyReportViewProjector {
         if (analysis.issues() != null) {
             for (AnalysisIssue issue : analysis.issues()) {
                 List<String> tRefs = issue.taskRefs() != null ? issue.taskRefs() : List.of();
-                List<String> tTitles = tRefs.stream()
-                        .map(ref -> taskTitleByRef.getOrDefault(ref, "확인할 수 없는 업무 (" + ref + ")"))
-                        .toList();
+                List<String> tTitles = tRefs.stream().map(refs::taskTitle).toList();
 
-                String realTitle = tTitles.isEmpty() ? issue.title() : tTitles.get(0);
+                String issueTitle = refs.resolve(issue.title());
+                String realTitle = tTitles.isEmpty() ? issueTitle : tTitles.get(0);
 
                 DecisionView dView = null;
                 if (issue.decision() != null) {
@@ -162,15 +162,14 @@ public class AiWeeklyReportViewProjector {
                     DeadlineView dlView = null;
                     if (d.deadline() != null) {
                         String ref = d.deadline().referenceRef();
-                        String refTitle = ref != null ? taskTitleByRef.getOrDefault(ref, eventTitleByRef.getOrDefault(ref, ref)) : null;
-                        dlView = new DeadlineView(d.deadline().source(), ref, refTitle);
+                        dlView = new DeadlineView(d.deadline().source(), ref, refs.referenceTitle(ref));
                     }
 
                     dView = new DecisionView(
-                            d.title(),
-                            d.question(),
+                            refs.resolve(d.title()),
+                            refs.resolve(d.question()),
                             d.recommendedOptionCode() != null ? d.recommendedOptionCode().name() : null,
-                            d.recommendation(),
+                            refs.resolve(d.recommendation()),
                             d.decisionMakerRole(),
                             d.actionOwnerRole(),
                             dlView,
@@ -183,16 +182,16 @@ public class AiWeeklyReportViewProjector {
                         issue.priority() != null ? issue.priority().name() : "P1",
                         issue.candidateRef(),
                         issue.severity() != null ? issue.severity().name() : "MEDIUM",
-                        issue.title(),
+                        issueTitle,
                         realTitle,
-                        issue.impact(),
+                        refs.resolve(issue.impact()),
                         issue.confidence() != null ? issue.confidence().name() : "MEDIUM",
                         tRefs,
                         tTitles,
                         issue.evidenceCodes() != null ? issue.evidenceCodes().stream().map(Enum::name).toList() : List.of(),
-                        issue.missingEvidence() != null ? issue.missingEvidence() : List.of(),
-                        issue.integratedJudgment(),
-                        issue.requiredDecision(),
+                        refs.resolveAll(issue.missingEvidence()),
+                        refs.resolve(issue.integratedJudgment()),
+                        refs.resolve(issue.requiredDecision()),
                         dView
                 ));
             }
@@ -213,7 +212,7 @@ public class AiWeeklyReportViewProjector {
                 ejView,
                 achView,
                 issueViews,
-                analysis.globalMissingEvidence() != null ? analysis.globalMissingEvidence() : List.of(),
+                refs.resolveAll(analysis.globalMissingEvidence()),
                 metricsView,
                 comparisonView,
                 workflowView,
@@ -221,6 +220,125 @@ public class AiWeeklyReportViewProjector {
                 memberViews,
                 calendarViews
         );
+    }
+
+    /** Snapshot이 담고 있는 요청 언어를 그대로 따른다. 없으면 한국어로 본다. */
+    private boolean isKorean(AiWeeklyReportSnapshotV1 snapshot) {
+        return snapshot.reportContext() == null || snapshot.reportContext().language() != Language.EN;
+    }
+
+    /**
+     * ref를 표시 이름으로 되돌린다. 명세 §8.1 "재결합은 서버에서 수행한다"의 실제 구현이다.
+     *
+     * <p>구조화된 ref 필드뿐 아니라 모델이 문장 안에 직접 써 넣은 ref도 바꾼다. 그러지 않으면
+     * "TASK-6은 URGENT 우선순위이며"처럼 내부 식별자가 사용자 문서에 그대로 찍힌다.
+     * 매칭에 실패한 ref도 원시 식별자를 남기지 않고 비식별 라벨로 바꾼다.
+     */
+    private static final class RefResolver {
+        /**
+         * Snapshot ref 표기는 {@code TASK-12} 형태로 고정이다. 접두사가 붙은 단어는 건드리지 않는다.
+         *
+         * <p>{@code RISK-001}(candidateRef)도 포함한다. 모델이 "RISK-001의 OVERDUE 근거는"처럼
+         * 문장에 써 넣는데, 이것도 사용자에게는 의미 없는 내부 식별자다.
+         */
+        private static final Pattern REF = Pattern.compile("\\b(TASK|MEMBER|EVENT|RISK)-(\\d+)\\b");
+
+        /** 치환 뒤 곧바로 오는 조사. 앞말의 받침이 바뀌므로 다시 골라야 한다. */
+        private static final Pattern JOSA = Pattern.compile("^(은|는|이|가|을|를|과|와|으로|로)(?![가-힣])");
+
+        private final Map<String, String> taskTitleByRef;
+        private final Map<String, String> memberNameByRef;
+        private final Map<String, String> eventTitleByRef;
+        private final boolean ko;
+
+        private RefResolver(Map<String, String> taskTitleByRef, Map<String, String> memberNameByRef,
+                Map<String, String> eventTitleByRef, boolean ko) {
+            this.taskTitleByRef = taskTitleByRef;
+            this.memberNameByRef = memberNameByRef;
+            this.eventTitleByRef = eventTitleByRef;
+            this.ko = ko;
+        }
+
+        String taskTitle(String ref) {
+            return taskTitleByRef.getOrDefault(ref, ko ? "확인할 수 없는 업무" : "Unidentified task");
+        }
+
+        String memberName(String ref) {
+            return memberNameByRef.getOrDefault(ref, ko ? "확인할 수 없는 팀원" : "Unidentified member");
+        }
+
+        String eventTitle(String ref) {
+            return eventTitleByRef.getOrDefault(ref, ko ? "확인할 수 없는 일정" : "Unidentified event");
+        }
+
+        /** deadline의 referenceRef는 업무일 수도 일정일 수도 있어 둘 다 찾아본다. */
+        String referenceTitle(String ref) {
+            if (ref == null) return null;
+            String title = taskTitleByRef.get(ref);
+            if (title != null) return title;
+            title = eventTitleByRef.get(ref);
+            return title != null ? title : eventTitle(ref);
+        }
+
+        /** missingEvidence처럼 사용자에게 문장으로 보이는 문자열 목록도 같이 치환한다. */
+        List<String> resolveAll(List<String> texts) {
+            return texts == null ? List.of() : texts.stream().map(this::resolve).toList();
+        }
+
+        String resolve(String text) {
+            if (text == null || text.isEmpty()) return text;
+            Matcher matcher = REF.matcher(text);
+            StringBuilder out = new StringBuilder();
+            int tail = 0;
+            while (matcher.find()) {
+                String replacement = displayNameOf(matcher.group());
+                out.append(text, tail, matcher.start()).append(replacement);
+                tail = matcher.end();
+
+                // 모델은 ref 발음에 맞춰 조사를 붙였다("TASK-5은"). 제목으로 바꾸면 받침이 달라진다.
+                Matcher josa = JOSA.matcher(text.substring(tail));
+                if (josa.find()) {
+                    String corrected = correctJosa(josa.group(), replacement);
+                    if (corrected == null) {
+                        out.append(josa.group());
+                    } else {
+                        out.append(corrected);
+                    }
+                    tail += josa.group().length();
+                }
+            }
+            out.append(text, tail, text.length());
+            return out.toString();
+        }
+
+        private String displayNameOf(String ref) {
+            if (ref.startsWith("TASK-")) return taskTitle(ref);
+            if (ref.startsWith("MEMBER-")) return memberName(ref);
+            if (ref.startsWith("RISK-")) return ko ? "해당 위험 후보" : "the risk candidate";
+            return eventTitle(ref);
+        }
+
+        /**
+         * 앞말의 받침에 맞는 조사를 고른다. 마지막 글자가 한글 음절이 아니면(영문 제목 등)
+         * 규칙을 세울 수 없으므로 원문을 그대로 둔다는 뜻으로 null을 준다.
+         */
+        private String correctJosa(String josa, String precedingWord) {
+            if (precedingWord.isEmpty()) return null;
+            char last = precedingWord.charAt(precedingWord.length() - 1);
+            if (last < 0xAC00 || last > 0xD7A3) return null;
+            int jongseong = (last - 0xAC00) % 28;
+            boolean batchim = jongseong != 0;
+            boolean rieul = jongseong == 8;
+            return switch (josa) {
+                case "은", "는" -> batchim ? "은" : "는";
+                case "이", "가" -> batchim ? "이" : "가";
+                case "을", "를" -> batchim ? "을" : "를";
+                case "과", "와" -> batchim ? "과" : "와";
+                // 받침 ㄹ은 예외다. "정리로"가 맞고 "정리으로"는 틀리다.
+                case "으로", "로" -> batchim && !rieul ? "으로" : "로";
+                default -> null;
+            };
+        }
     }
 
     private Map<String, String> buildTaskTitleMap(Long groupId, List<SnapshotTask> snapshotTasks) {

@@ -28,6 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -152,6 +156,204 @@ class AiWeeklyReportViewProjectorTest {
         assertThat(view.tasks()).hasSize(1);
         assertThat(view.tasks().get(0).realTitle()).isEqualTo("담당자가 없는 업무");
         assertThat(view.tasks().get(0).realTitle()).isNotEqualTo(other.getTitle());
+    }
+
+    /**
+     * 실제 관측된 결함. projector가 구조화 ref 필드만 재결합해서, 모델이 문장 안에 써 넣은
+     * "TASK-6은 URGENT 우선순위이며"가 사용자 문서에 그대로 찍혔다. 명세 §8.1은 재결합을
+     * 서버 책임으로 두므로 텍스트 필드도 실제 제목으로 바뀌어야 한다.
+     */
+    @Test
+    @DisplayName("분석 문장 안의 원시 ref를 실제 제목·이름으로 치환한다")
+    void replacesRawRefsInsideAnalysisProse() {
+        Fixture fixture = fixture();
+        Task urgent = task(fixture, "결제 실패 로그 확인", Task.Status.TODO, null);
+        flush();
+
+        AiWeeklyReportView view = projector.project(revision(fixture,
+                snapshotWith(fixture, urgent), analysisWithRefsInProse(fixture, urgent), "OPENAI"));
+
+        assertThat(view.executiveJudgment().headline())
+                .isEqualTo(urgent.getTitle() + "은 URGENT 우선순위이며 아직 TODO이다.");
+        assertThat(view.executiveJudgment().interpretation())
+                .contains(urgent.getTitle())
+                .contains(fixture.leaderName);
+        assertThat(view.achievement().summary()).contains(urgent.getTitle());
+
+        var issue = view.issues().get(0);
+        assertThat(issue.title()).contains(urgent.getTitle());
+        assertThat(issue.impact()).contains(urgent.getTitle());
+        assertThat(issue.integratedJudgment()).contains(fixture.leaderName);
+        assertThat(issue.requiredDecision()).contains(urgent.getTitle());
+        assertThat(issue.decision().title()).contains(urgent.getTitle());
+        assertThat(issue.decision().question()).contains(fixture.leaderName);
+        assertThat(issue.decision().recommendation()).contains(urgent.getTitle());
+
+        assertThat(proseOf(view)).noneMatch(text -> text.matches(".*(TASK|MEMBER|EVENT)-\\d+.*"));
+    }
+
+    /** 매칭에 실패한 ref는 실제 제목이 없더라도 원시 식별자를 남기지 않는다. */
+    @Test
+    @DisplayName("해석할 수 없는 ref도 원시 식별자 대신 비식별 라벨로 바꾼다")
+    void replacesUnresolvableRefsWithANonIdentifyingLabel() {
+        Fixture fixture = fixture();
+        Task urgent = task(fixture, "결제 실패 로그 확인", Task.Status.TODO, null);
+        flush();
+
+        String analysisJson = """
+                {"schemaVersion":"ai-weekly-report-analysis.v1","analysisStatus":"NORMAL",
+                 "executiveJudgment":{"headline":"TASK-999가 지연되었다.",
+                 "interpretation":"담당자는 MEMBER-999, 관련 일정은 EVENT-999이다.",
+                 "metricRefs":["PERIOD_TASK_COUNT"],"evidenceTaskRefs":["TASK-999"],
+                 "confidence":"MEDIUM","missingEvidence":[]}}
+                """;
+
+        AiWeeklyReportView view = projector.project(revision(fixture,
+                snapshotWith(fixture, urgent), analysisJson, "OPENAI"));
+
+        assertThat(view.executiveJudgment().headline()).isEqualTo("확인할 수 없는 업무가 지연되었다.");
+        assertThat(view.executiveJudgment().interpretation())
+                .isEqualTo("담당자는 확인할 수 없는 팀원, 관련 일정은 확인할 수 없는 일정이다.");
+        assertThat(view.executiveJudgment().evidenceTaskTitles()).containsExactly("확인할 수 없는 업무");
+        assertThat(proseOf(view)).noneMatch(text -> text.matches(".*(TASK|MEMBER|EVENT)-\\d+.*"));
+    }
+
+    /**
+     * candidateRef도 사용자에게는 의미 없는 내부 식별자다. 실제 문서에 "RISK-001의 OVERDUE
+     * 근거는"이 그대로 찍혔다. missingEvidence는 목록이라 치환 경로에서 빠져 있었다.
+     */
+    @Test
+    @DisplayName("candidateRef와 missingEvidence 문장의 내부 식별자도 치환한다")
+    void replacesCandidateRefsIncludingInsideMissingEvidence() {
+        Fixture fixture = fixture();
+        Task urgent = task(fixture, "결제 실패 로그 확인", Task.Status.TODO, null);
+        flush();
+
+        String analysisJson = """
+                {"schemaVersion":"ai-weekly-report-analysis.v1","analysisStatus":"NORMAL",
+                 "executiveJudgment":{"headline":"RISK-001을 확인해야 한다.",
+                 "interpretation":"근거가 부족하다.","metricRefs":["PERIOD_TASK_COUNT"],
+                 "evidenceTaskRefs":[],"confidence":"INSUFFICIENT_EVIDENCE",
+                 "missingEvidence":["RISK-001의 OVERDUE 상태를 뒷받침하는 근거"]},
+                 "globalMissingEvidence":["RISK-002의 근거"]}
+                """;
+
+        AiWeeklyReportView view = projector.project(revision(fixture,
+                snapshotWith(fixture, urgent), analysisJson, "OPENAI"));
+
+        assertThat(view.executiveJudgment().headline()).isEqualTo("해당 위험 후보를 확인해야 한다.");
+        assertThat(view.executiveJudgment().missingEvidence())
+                .containsExactly("해당 위험 후보의 OVERDUE 상태를 뒷받침하는 근거");
+        assertThat(view.globalMissingEvidence()).containsExactly("해당 위험 후보의 근거");
+        assertThat(proseOf(view)).noneMatch(text -> text.matches(".*(TASK|MEMBER|EVENT|RISK)-\\d+.*"));
+    }
+
+    /**
+     * 모델은 ref 발음에 맞춰 조사를 붙인다("TASK-5은"). 제목으로 바꾸면 받침이 달라져
+     * "결제 실패 로그 확인은"이 "...정리은"처럼 어긋난다. 실제 문서에서 관측된 증상이다.
+     */
+    @Test
+    @DisplayName("치환된 제목의 받침에 맞게 조사를 다시 고른다")
+    void fixesKoreanParticlesAfterSubstitution() {
+        Fixture fixture = fixture();
+        Task noBatchim = task(fixture, "정책 정리", Task.Status.TODO, null);
+        flush();
+
+        String analysisJson = """
+                {"schemaVersion":"ai-weekly-report-analysis.v1","analysisStatus":"NORMAL",
+                 "executiveJudgment":{"headline":"TASK-%1$d은 TASK-%1$d를 TASK-%1$d이 TASK-%1$d과 TASK-%1$d으로 끝난다.",
+                 "interpretation":"TASK-%1$d가 남아 있다.","metricRefs":["PERIOD_TASK_COUNT"],
+                 "evidenceTaskRefs":[],"confidence":"MEDIUM","missingEvidence":[]}}
+                """.formatted(noBatchim.getId());
+
+        AiWeeklyReportView view = projector.project(revision(fixture,
+                snapshotWith(fixture, noBatchim), analysisJson, "OPENAI"));
+
+        // "정리"는 받침이 없고 앞 글자가 ㄹ이므로 는/를/가/와/로를 골라야 한다.
+        assertThat(view.executiveJudgment().headline())
+                .isEqualTo("정책 정리는 정책 정리를 정책 정리가 정책 정리와 정책 정리로 끝난다.");
+        assertThat(view.executiveJudgment().interpretation()).isEqualTo("정책 정리가 남아 있다.");
+    }
+
+    /** 사용자에게 문장으로 보이는 필드 전부. 구조화된 ref 배열은 계약상 ref를 그대로 담는다. */
+    private List<String> proseOf(AiWeeklyReportView view) {
+        List<String> texts = new ArrayList<>();
+        if (view.executiveJudgment() != null) {
+            texts.add(view.executiveJudgment().headline());
+            texts.add(view.executiveJudgment().interpretation());
+            texts.addAll(view.executiveJudgment().evidenceTaskTitles());
+        }
+        if (view.achievement() != null) {
+            texts.add(view.achievement().headline());
+            texts.add(view.achievement().summary());
+            texts.addAll(view.achievement().evidenceTaskTitles());
+        }
+        view.issues().forEach(issue -> {
+            texts.add(issue.title());
+            texts.add(issue.realTaskTitle());
+            texts.add(issue.impact());
+            texts.add(issue.integratedJudgment());
+            texts.add(issue.requiredDecision());
+            texts.addAll(issue.taskTitles());
+            if (issue.decision() != null) {
+                texts.add(issue.decision().title());
+                texts.add(issue.decision().question());
+                texts.add(issue.decision().recommendation());
+                if (issue.decision().deadline() != null) {
+                    texts.add(issue.decision().deadline().referenceTitle());
+                }
+            }
+        });
+        view.tasks().forEach(task -> {
+            texts.add(task.realTitle());
+            texts.add(task.assigneeName());
+        });
+        view.members().forEach(member -> texts.add(member.realName()));
+        view.calendarConstraints().forEach(event -> texts.add(event.realTitle()));
+        texts.addAll(view.globalMissingEvidence());
+        if (view.executiveJudgment() != null) texts.addAll(view.executiveJudgment().missingEvidence());
+        view.issues().forEach(issue -> texts.addAll(issue.missingEvidence()));
+        texts.removeIf(Objects::isNull);
+        return texts;
+    }
+
+    private String snapshotWith(Fixture fixture, Task task) {
+        return """
+                {"schemaVersion":"ai-weekly-report-snapshot.v1",
+                 "reportContext":{"groupRef":"GROUP-%d","language":"KO","promptVersion":"v7-2-prompt-001"},
+                 "metrics":{"periodTaskCount":1,"completionRatePercent":0,
+                 "onTimeRatePercent":null,"delayedCount":0,"averageCompletionHours":null},
+                 "tasks":[{"taskRef":"TASK-%d","safeLabel":"우선순위 높은 업무","status":"TODO",
+                 "priority":"URGENT","assigneeRef":"MEMBER-%d","createdAt":"%s",
+                 "calendarEventRefs":[]}],
+                 "members":[{"memberRef":"MEMBER-%d","role":"LEADER","assignedCount":1,
+                 "activeCount":1,"completedCount":0,"delayedCount":0,"upcomingCalendarCount":0}],
+                 "calendarConstraints":[]}
+                """.formatted(fixture.group.getId(), task.getId(), fixture.leader.getId(),
+                task.getCreatedAt().toInstant(ZoneOffset.UTC).toString(), fixture.leader.getId());
+    }
+
+    private String analysisWithRefsInProse(Fixture fixture, Task task) {
+        return """
+                {"schemaVersion":"ai-weekly-report-analysis.v1","analysisStatus":"NORMAL",
+                 "executiveJudgment":{"headline":"TASK-%1$d은 URGENT 우선순위이며 아직 TODO이다.",
+                 "interpretation":"TASK-%1$d의 담당자는 MEMBER-%2$d이다.",
+                 "metricRefs":["PERIOD_TASK_COUNT"],"evidenceTaskRefs":["TASK-%1$d"],
+                 "confidence":"MEDIUM","missingEvidence":[]},
+                 "achievement":{"status":"NONE","headline":"","summary":"TASK-%1$d은 미완료다.",
+                 "evidenceTaskRefs":[]},
+                 "issues":[{"priority":"P1","candidateRef":"RISK-1","severity":"HIGH",
+                 "title":"TASK-%1$d 지연 위험","impact":"TASK-%1$d이 후속 작업을 막는다.",
+                 "confidence":"MEDIUM","taskRefs":[],"evidenceCodes":[],"missingEvidence":[],
+                 "integratedJudgment":"MEMBER-%2$d의 부하가 원인일 수 있다.",
+                 "requiredDecision":"TASK-%1$d의 담당자 재배정 여부",
+                 "decision":{"title":"TASK-%1$d 재배정","question":"MEMBER-%2$d에게 계속 맡길까?",
+                 "recommendedOptionCode":"KEEP_CURRENT_PLAN",
+                 "recommendation":"TASK-%1$d을 우선 처리한다.",
+                 "decisionMakerRole":"LEADER","actionOwnerRole":"CURRENT_ASSIGNEE",
+                 "deadline":{"source":"LEADER_DECISION_REQUIRED","referenceRef":null},
+                 "executionStepCodes":[],"completionSignalCodes":[]}}]}
+                """.formatted(task.getId(), fixture.leader.getId());
     }
 
     // ---------- fixture ----------
