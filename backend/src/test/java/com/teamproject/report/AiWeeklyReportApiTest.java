@@ -273,6 +273,15 @@ class AiWeeklyReportApiTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 ID 조회 시 404 Not Found를 반환한다")
+    void nonExistentReportIdReturns404() throws Exception {
+        mvc.perform(get("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly/999999")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + memberToken))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("비멤버가 조회 요청 시 404/403을 반환한다")
     void nonMemberCannotReadReport() throws Exception {
         AiWeeklyReportRevision rev = revisionRepository.save(new AiWeeklyReportRevision(
