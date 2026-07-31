@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.LocalDate;
 
 @Component
 public class OpenHtmlReportPdfRenderer implements ReportPdfRenderer {
@@ -73,10 +74,13 @@ public class OpenHtmlReportPdfRenderer implements ReportPdfRenderer {
         StringBuilder body = new StringBuilder();
 
         // ---------------- PAGE 1: 확정 업무 현황 (Confirmed Task Status) ----------------
+        LocalDate toInclusive = report.toExclusive() != null ? report.toExclusive().minusDays(1) : report.toExclusive();
+        String periodDisplay = report.from() + " ~ " + toInclusive;
+
         body.append("<div class='page'>")
                 .append("<p class='eyebrow'>WorkTaskFlow · AI WEEKLY REPORT v7-2 · R").append(report.revision()).append("</p>")
                 .append("<h1>1. 확정 업무 현황</h1>")
-                .append("<p class='meta'>기간: ").append(report.from()).append(" ~ ").append(report.toExclusive()).append(" · 모드: ").append(report.analysisMode()).append("</p>");
+                .append("<p class='meta'>기간: ").append(periodDisplay).append(" · 모드: ").append(report.analysisMode()).append("</p>");
 
         if (report.metrics() != null) {
             body.append("<table class='metrics'><tr>")

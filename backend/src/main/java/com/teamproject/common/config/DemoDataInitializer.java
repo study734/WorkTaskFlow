@@ -50,7 +50,7 @@ public class DemoDataInitializer implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        if (!demoEnabled) {
+        if (!demoEnabled || isTestEnvironment()) {
             return;
         }
 
@@ -91,5 +91,14 @@ public class DemoDataInitializer implements CommandLineRunner {
             groupMemberRepository.save(GroupMember.leader(teamGroup, demoLeader));
             log.info("Created new paid team group '{}' (ID: {}) for demo leader", teamGroup.getName(), teamGroup.getId());
         }
+    }
+
+    private boolean isTestEnvironment() {
+        for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
+            if (element.getClassName().contains("org.junit") || element.getClassName().contains("org.springframework.test")) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -1,5 +1,15 @@
 import { AiWeeklyReportView } from '../../../api/reportApi';
 
+function formatPeriodDisplay(from: string, toExclusive: string): string {
+  if (!toExclusive) return from;
+  const d = new Date(`${toExclusive}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return `${from} ~ ${toExclusive}`;
+  d.setDate(d.getDate() - 1);
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const date = String(d.getDate()).padStart(2, '0');
+  return `${from} ~ ${d.getFullYear()}-${month}-${date}`;
+}
+
 export function AiReportContent({ report, print = false }: {
   report: AiWeeklyReportView;
   print?: boolean;
@@ -23,7 +33,7 @@ export function AiReportContent({ report, print = false }: {
           <span className="eyebrow">WorkTaskFlow · AI WEEKLY REPORT v7-2 · R{report.revision}</span>
           <h1>1. 확정 업무 현황</h1>
           <p className="meta">
-            기간: {report.from} ~ {report.toExclusive} · 상태: {report.status} ({report.analysisMode})
+            기간: {formatPeriodDisplay(report.from, report.toExclusive)} · 상태: {report.status} ({report.analysisMode})
           </p>
         </div>
 

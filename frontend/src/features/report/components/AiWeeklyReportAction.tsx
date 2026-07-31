@@ -1,16 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { errorMessage } from '../../../api/client';
-import type { ApiError } from '../../../api/client';
 import { GroupResponse } from '../../../api/groupApi';
 import { reportApi } from '../../../api/reportApi';
 import { useLanguage } from '../../../app/LanguageContext';
-import {
-  aiReportMessage,
-  openReportWindow,
-  resolveWeeklyAiReport,
-  writeGeneratingWindow,
-  writeReportWindow,
-} from './aiReportWindow';
+import { lastCompletedWeekStart } from '../../../app/week';
 
 type Props = {
   groupId: number;
@@ -22,58 +16,87 @@ type Props = {
   };
 };
 
-function completedWeekStart(from: string) {
-  const base = new Date(`${from}T00:00:00`);
-  if (Number.isNaN(base.getTime())) return from;
-  const monday = new Date(base);
-  monday.setDate(base.getDate() - ((base.getDay() + 6) % 7));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const DAY = 86_400_000;
-  while (monday.getTime() + 6 * DAY >= today.getTime()) {
-    monday.setDate(monday.getDate() - 7);
+function getToExclusive(fromStr: string): string {
+  const d = new Date(`${fromStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return fromStr;
+  d.setDate(d.getDate() + 7);
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const date = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${date}`;
+}
+
+function formatInclusiveEnd(fromStr: string): string {
+  const d = new Date(`${fromStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return fromStr;
+  d.setDate(d.getDate() + 6);
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const date = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${date}`;
+}
+
+function getZonedTodayString(timeZone?: string): string {
+  const now = new Date();
+  if (!timeZone) {
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const date = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${month}-${date}`;
   }
-  const month = String(monday.getMonth() + 1).padStart(2, '0');
-  const date = String(monday.getDate()).padStart(2, '0');
-  return `${monday.getFullYear()}-${month}-${date}`;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(now);
+  const number = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  const year = number('year');
+  const month = String(number('month')).padStart(2, '0');
+  const day = String(number('day')).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
   const { language, t } = useLanguage();
-  const weekStart = completedWeekStart(selection.from);
+  const navigate = useNavigate();
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
+
   const canManage = group?.membershipPlan === 'PAID' && group.role === 'LEADER';
   const supportedSelection = selection.scope === 'GROUP' && selection.period === 'WEEKLY';
 
-  async function openAiReport() {
-    setMessage('');
-    const reportWindow = openReportWindow();
-    if (!reportWindow) {
+  const fromDate = selection.from;
+  const toExclusive = getToExclusive(fromDate);
+  const todayStr = getZonedTodayString(group?.timezone);
+
+  // Check if week is completed: toExclusive must be <= today
+  const isCompletedWeek = toExclusive <= todayStr;
+
+  const recentCompletedStart = lastCompletedWeekStart(group?.timezone);
+  const recentCompletedEnd = formatInclusiveEnd(recentCompletedStart);
+  const recentCompletedText = `${recentCompletedStart} ~ ${recentCompletedEnd}`;
+
+  async function handleGenerate() {
+    if (!isCompletedWeek) {
       setMessage(t(
-        '팝업이 차단되어 리포트를 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요.',
-        'The report could not open because pop-ups are blocked. Allow pop-ups for this site.',
+        'AI 주간 리포트는 완료된 주간만 생성할 수 있습니다.',
+        'AI weekly reports can only be generated for completed weeks.'
       ));
       return;
     }
-    const langCode = language === 'en' ? 'EN' : 'KO';
-    writeGeneratingWindow(reportWindow, t, langCode);
+    setMessage('');
     setPending(true);
+    const langCode = language === 'en' ? 'EN' : 'KO';
     try {
-      const reportView = await resolveWeeklyAiReport(groupId, weekStart, langCode);
-      if (reportWindow.closed) return;
-
-      writeReportWindow(reportWindow, reportView, {
-        t,
+      const res = await reportApi.generateAiWeekly(groupId, {
+        from: fromDate,
+        toExclusive,
         language: langCode,
-        onDownload: async () => {
-          await reportApi.downloadAiWeeklyPdf(groupId, reportView.reportId, reportView.from, reportView.revision);
-        },
+        regenerate: false,
       });
-      setMessage('');
+
+      navigate(`/groups/${groupId}/reports/ai-weekly/${res.reportId}`);
     } catch (caught) {
-      reportWindow.close();
-      setMessage(aiReportMessage(caught as ApiError, t));
+      setMessage(errorMessage(caught));
     } finally {
       setPending(false);
     }
@@ -86,19 +109,32 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
         'AI 리포트는 그룹 전체·주간 기본 리포트를 사용합니다.',
         'AI reports use whole-group weekly basic reports.',
       )
-      : '';
+      : !isCompletedWeek
+        ? t('AI 주간 리포트는 완료된 주간만 생성할 수 있습니다.', 'AI weekly reports can only be generated for completed weeks.')
+        : '';
 
   return (
-    <div className="ai-report-action">
+    <div className="ai-report-action" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       <button
         className="report-download ai-report-button"
         type="button"
         disabled={Boolean(unavailableReason) || pending}
         title={unavailableReason || undefined}
-        onClick={() => void openAiReport()}
+        onClick={() => void handleGenerate()}
       >
         {pending ? t('생성 중...', 'Generating...') : t('AI 리포트', 'AI report')}
       </button>
+
+      {!isCompletedWeek && canManage && supportedSelection && (
+        <div className="uncompleted-week-notice" style={{ fontSize: '12px', color: '#d97706', marginTop: '4px' }}>
+          <span>{t('AI 주간 리포트는 완료된 주간만 생성할 수 있습니다.', 'AI weekly reports can only be generated for completed weeks.')}</span>
+          <br />
+          <small style={{ color: '#4b5563' }}>
+            {t(`최근 완료 주간: ${recentCompletedText}`, `Recent completed week: ${recentCompletedText}`)}
+          </small>
+        </div>
+      )}
+
       {message && <small className="error">{message}</small>}
     </div>
   );

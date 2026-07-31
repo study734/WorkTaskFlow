@@ -77,10 +77,17 @@ export function AiWeeklyReportPanel({
 
   async function handleGenerate(regenerate: boolean) {
     if (!canManageAi) return;
+    const toExclusive = getToExclusive(weekFrom);
+    const toExclusiveDate = new Date(`${toExclusive}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (toExclusiveDate.getTime() > today.getTime()) {
+      setMessage(t('AI 주간 리포트는 완료된 주간만 생성할 수 있습니다.', 'AI weekly reports can only be generated for completed weeks.'));
+      return;
+    }
     setSubmitting(true);
     setMessage('');
     try {
-      const toExclusive = getToExclusive(weekFrom);
       const res = await reportApi.generateAiWeekly(groupId, {
         from: weekFrom,
         toExclusive,
