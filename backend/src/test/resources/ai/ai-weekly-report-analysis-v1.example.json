@@ -1,0 +1,146 @@
+{
+  "schemaVersion": "ai-weekly-report-analysis.v1",
+  "analysisStatus": "NORMAL",
+  "executiveJudgment": {
+    "headline": "승인 후 담당 연결과 보류 해제가 이번 주 가장 큰 운영 병목입니다.",
+    "interpretation": "확정 데이터에서 미할당 지연 업무와 장기 보류 업무가 동시에 확인됩니다. 완료율이 내려간 구간과 같은 업무들이며 우선 확인 대상입니다.",
+    "metricRefs": [
+      "COMPLETION_RATE",
+      "DELAYED_COUNT",
+      "COMPLETION_RATE_DELTA"
+    ],
+    "evidenceTaskRefs": [
+      "TASK-104",
+      "TASK-110"
+    ],
+    "confidence": "HIGH",
+    "missingEvidence": []
+  },
+  "achievement": {
+    "status": "AVAILABLE",
+    "headline": "기한을 지킨 업무가 체크리스트까지 완료되었습니다.",
+    "summary": "완료 상태와 체크리스트 완료가 모두 확인된 업무입니다.",
+    "evidenceTaskRefs": [
+      "TASK-101"
+    ]
+  },
+  "issues": [
+    {
+      "priority": "P1",
+      "candidateRef": "RISK-001",
+      "severity": "HIGH",
+      "title": "승인 후 미할당 지연 업무",
+      "impact": "담당자가 정해지지 않아 착수가 계속 미뤄지고 있습니다.",
+      "confidence": "HIGH",
+      "taskRefs": [
+        "TASK-104"
+      ],
+      "evidenceCodes": [
+        "APPROVED_UNASSIGNED",
+        "OVERDUE",
+        "CHECKLIST_NOT_STARTED"
+      ],
+      "missingEvidence": [],
+      "integratedJudgment": "담당자 지정과 마감 재조정이 같은 회의에서 함께 결정되어야 합니다.",
+      "requiredDecision": "담당자를 어떤 기준으로 지정할지 결정합니다.",
+      "decision": {
+        "title": "지연 업무 담당자 지정",
+        "question": "이 업무를 누가 담당할 것인가?",
+        "recommendedOptionCode": "ASSIGN_OWNER_AND_SET_DUE",
+        "recommendation": "팀원별 활성 업무와 임박 일정을 확인해 담당자를 지정하고 마감을 다시 정합니다.",
+        "decisionMakerRole": "LEADER",
+        "actionOwnerRole": "SELECTED_MEMBER",
+        "deadline": {
+          "source": "MEETING_END",
+          "referenceRef": "EVENT-14"
+        },
+        "executionStepCodes": [
+          "ASSIGN_OWNER",
+          "SET_DUE",
+          "START_CHECKLIST"
+        ],
+        "completionSignalCodes": [
+          "ASSIGNEE_SET",
+          "DUE_AT_SET",
+          "CHECKLIST_STARTED"
+        ]
+      }
+    },
+    {
+      "priority": "P2",
+      "candidateRef": "RISK-002",
+      "severity": "MEDIUM",
+      "title": "해제 조건이 없는 장기 보류 업무",
+      "impact": "보류 해제 기준이 없어 재개 시점을 판단할 수 없습니다.",
+      "confidence": "MEDIUM",
+      "taskRefs": [
+        "TASK-110"
+      ],
+      "evidenceCodes": [
+        "ON_HOLD",
+        "CHECKLIST_STALLED"
+      ],
+      "missingEvidence": [],
+      "integratedJudgment": "외부 회신을 기다리는 상태이며 재개 조건을 문서로 남겨야 합니다.",
+      "requiredDecision": "보류 해제 조건과 다음 점검 시점을 정합니다.",
+      "decision": {
+        "title": "보류 해제 조건 확정",
+        "question": "무엇이 확인되면 이 업무를 재개하는가?",
+        "recommendedOptionCode": "DEFINE_HOLD_EXIT_CRITERIA",
+        "recommendation": "외부 회신 도착을 해제 조건으로 정하고 다음 점검일을 기록합니다.",
+        "decisionMakerRole": "LEADER",
+        "actionOwnerRole": "CURRENT_ASSIGNEE",
+        "deadline": {
+          "source": "TASK_DUE",
+          "referenceRef": "TASK-110"
+        },
+        "executionStepCodes": [
+          "SET_HOLD_EXIT_CRITERIA",
+          "SET_NEXT_REVIEW_DATE"
+        ],
+        "completionSignalCodes": [
+          "HOLD_STATE_RECORDED",
+          "NEXT_REVIEW_DATE_SET"
+        ]
+      }
+    },
+    {
+      "priority": "P3",
+      "candidateRef": "RISK-003",
+      "severity": "LOW",
+      "title": "미해결 멘션이 남은 업무",
+      "impact": "요청이 전달되었는지 확인되지 않은 상태입니다.",
+      "confidence": "INSUFFICIENT_EVIDENCE",
+      "taskRefs": [
+        "TASK-104"
+      ],
+      "evidenceCodes": [
+        "UNRESOLVED_MENTION"
+      ],
+      "missingEvidence": [
+        "멘션 대상자의 확인 여부"
+      ],
+      "integratedJudgment": "멘션이 남아 있으나 실제 대기 여부는 확인되지 않았습니다.",
+      "requiredDecision": "멘션 처리 담당을 정할지 결정합니다.",
+      "decision": {
+        "title": "미해결 멘션 처리",
+        "question": "남은 멘션을 누가 확인할 것인가?",
+        "recommendedOptionCode": "REQUEST_MORE_EVIDENCE",
+        "recommendation": "회의에서 멘션 대상자에게 확인 여부를 직접 묻고 결과를 기록합니다.",
+        "decisionMakerRole": "LEADER",
+        "actionOwnerRole": "REQUESTER",
+        "deadline": {
+          "source": "LEADER_DECISION_REQUIRED",
+          "referenceRef": null
+        },
+        "executionStepCodes": [
+          "RESOLVE_MENTION"
+        ],
+        "completionSignalCodes": [
+          "MENTION_RESOLVED"
+        ]
+      }
+    }
+  ],
+  "globalMissingEvidence": []
+}

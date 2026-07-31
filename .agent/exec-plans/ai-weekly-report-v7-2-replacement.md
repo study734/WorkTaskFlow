@@ -69,13 +69,16 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
   `Confirmed Product Decisions` 참조.
 - [x] (2026-07-31 15:00+09:00) `docs/spec/AiWeeklyReport.md`에 D1~D7을
   반영해 명세를 단일 정본으로 교정했다. JSON Schema 두 개는 변경하지 않았다.
-- [ ] **실행 규칙**: 한 채팅 = 한 milestone = 한 검증 가능한 결과 = 가능하면
-  한 커밋. `M0~M11을 구현해` 같은 지시는 금지한다. M0 검증·리뷰 후에만 M1로
-  넘어간다.
-- [ ] **선행 조건**: 위험 R9의 작업 트리 격리(별도 커밋 / stash / 별도
-  worktree 중 하나)를 M1 착수 전에 완료한다.
-- [ ] M0 계약 기준선 고정 (fixture + drift test)
-- [ ] M1 SDK 4.47.0 승격과 클라이언트 설정 격리
+- [x] (2026-07-31 15:20+09:00) 명세 정본 커밋 `c67a0b4`와 ExecPlan 커밋
+  `f455634`를 `origin/member1-work`에 push했다.
+- [x] (2026-07-31 15:40+09:00) 작업 트리의 기존 미커밋 변경을 파일별로
+  판정하고 처리했다. 자세한 내용은 위험 R9 참조.
+- [x] (2026-07-31 16:00+09:00) **M0 완료**: 계약 기준선을 fixture와 테스트로
+  고정했다. `AiWeeklyReportSchemaFixtureTest` 8/8 통과.
+- [ ] **다음 승인 게이트는 M1이 아니다.** `OpenAiResponsesNarrativeAdapterTest`
+  5건이 환경 의존으로 실패 중이라 SDK를 4.47.0으로 올려도 회귀를 확인할 수
+  없다. 이 테스트를 신뢰 가능한 상태로 만드는 것이 M1의 선행 조건이다.
+- [ ] M1 SDK 4.47.0 승격과 클라이언트 설정 격리 (선행 조건 해소 후)
 - [ ] M2 Snapshot assembler와 bulk evidence query
 - [ ] M3 Policy engine (risk candidate 생성)
 - [ ] M4 Deterministic fallback + business validator
@@ -211,6 +214,29 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
   drift test 자체를 작성할 수 없다. Issue #2가 Schema 변경을 금지했다.
   Date/Author: 2026-07-31 / member1 agent + PM
 
+- Decision: 작업 트리의 미커밋 변경 4개를 한 덩어리로 처리하지 않고 파일별로
+  판정한다. `BasicReportAccessService`는 커밋된 테스트가 요구하는 누락 구현이므로
+  baseline 복구 커밋으로 분리하고, Java 25 승격 3파일은 로컬 JDK 21에서 컴파일이
+  불가능하므로 트리에서 제외하고 `stash@{0}`에 보존한다.
+  Rationale: 전부 stash하면 `GroupInvitationApiTest`가 깨지고, 전부 트리에 두면
+  `release version 25 not supported`로 아무것도 컴파일되지 않는다. 두 극단 모두
+  검증을 불가능하게 만든다. 근거는 위험 R9에 기록했다.
+  Date/Author: 2026-07-31 / member1 agent + PM
+
+- Decision: Java 25 승격을 이번 작업에서 기각한다. 현재 브랜치는 Java 21을
+  유지하며 JDK 25를 설치하지 않는다. `stash@{0}`은 삭제하지 않되 M0~M11에서
+  사용하지 않는다.
+  Rationale: 저장소 기준은 Spring Boot 3.3.5 + Java 21이고 v7-2 구현에 Java 25가
+  필요한 이유가 없다. 승격이 팀 결정이라면 JDK·CI·Docker를 동시에 검증하는
+  독립 작업이어야 한다.
+  Date/Author: 2026-07-31 / PM
+
+- Decision: M1(SDK 4.47.0 승격)보다 `OpenAiResponsesNarrativeAdapterTest` 5건의
+  환경 의존 실패 해소를 먼저 처리한다.
+  Rationale: 그 5건이 SDK 승격의 회귀를 확인해 줄 유일한 테스트다. 실행되지
+  않는 상태로 버전을 올리면 승격 근거가 없다. 위험 R15.
+  Date/Author: 2026-07-31 / PM
+
 - Decision: ExecPlan은 milestone 단위로만 실행한다. 한 채팅에서 한 milestone을
   끝내고 검증·리뷰한 뒤 다음으로 넘어간다.
   Rationale: 1452줄 계획을 한 번에 실행시키면 작업 범위가 폭발하고 중간
@@ -220,22 +246,32 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
 
 ## Outcomes & Retrospective
 
-현재 상태: 조사, 계획 수립, D1~D7 확정, 명세 정본 교정까지 완료했다.
-구현은 시작하지 않았다.
+현재 상태: 조사, 계획 수립, D1~D7 확정, 명세 정본 교정, baseline 정합성 복구,
+M0(계약 기준선 고정)까지 완료했다. M1은 시작하지 않았다.
 
 달성한 것: 기존 구현 전체(백엔드 24개 main 파일, 9개 test 파일, 프론트엔드
 10개 파일, migration V30~V33)와 v7-2 정본(spec 1799줄 + Schema 2개)의 대응표,
 v7-2 정본 내부의 계약 충돌 목록, SDK 4.45.0→4.47.0 영향 분석, 11개 milestone
 분할과 각 단계의 검증 명령을 확보했다.
 
-남은 것: 작업 트리 격리(R9) → M0 → 검증·리뷰 → M1 → 검증·리뷰 → … 순으로
-milestone 하나씩 진행한다. 계약을 막던 D1·D2가 확정되었으므로 M0(fixture
-고정과 drift test)를 바로 시작할 수 있다.
+남은 것: **다음 게이트는 M1이 아니다.** `OpenAiResponsesNarrativeAdapterTest`
+5건을 신뢰 가능한 상태로 만드는 것이 먼저다(위험 R15). 그 다음 M1 → 검증·리뷰
+→ M2 → … 순으로 milestone 하나씩 진행한다.
 
-배운 것: v7-2 정본이 단일 문서가 아니라 "Markdown 명세 + JSON Schema 2개 +
-그 안의 Java 계약 클래스 예시" 세 겹이고, 세 겹이 서로 어긋난다. 구현을
+배운 것 1: v7-2 정본이 단일 문서가 아니라 "Markdown 명세 + JSON Schema 2개 +
+그 안의 Java 계약 클래스 예시" 세 겹이고, 세 겹이 서로 어긋났다. 구현을
 시작하기 전에 이 세 겹 중 무엇이 이기는지 문서화하지 않으면 drift test 자체를
 작성할 수 없다.
+
+배운 것 2: "무관한 미커밋 변경"을 한 덩어리로 취급하면 안 된다. 파일마다
+답이 달랐다. 하나는 커밋된 테스트가 요구하는 누락 구현이었고(stash하면 스위트가
+깨진다), 다른 셋은 로컬 JDK로는 컴파일조차 안 되는 변경이었다(트리에 두면
+아무것도 검증할 수 없다). 격리 전략을 정하기 전에 **각 파일이 테스트에 어떤
+영향을 주는지 먼저 측정**해야 한다.
+
+배운 것 3: 전체 스위트가 빨간 상태에서 milestone을 시작할 때는, 깨끗한
+worktree에서 기존 실패를 먼저 재현해 baseline을 고정해 두어야 한다. 그래야
+"내 변경이 만든 실패"와 "원래 있던 실패"를 증거로 구분할 수 있다.
 
 
 ## Context and Orientation
@@ -919,6 +955,40 @@ Snapshot assembler(M2)와 policy engine(M3) — 을 만들고, 그 위에 AI 없
 
 수용: fixture 2개가 각 Schema를 통과하고, 일부러 필드를 하나 빼면 실패한다.
 
+**결과 (2026-07-31 완료)**
+
+    Tests run: 8, Failures: 0, Errors: 0, Skipped: 0
+    -- in com.teamproject.report.AiWeeklyReportSchemaFixtureTest
+
+8건이 고정하는 계약:
+
+1. Snapshot 예시가 `ai-weekly-report-snapshot.v1`을 만족한다
+2. Analysis 예시가 `ai-weekly-report-analysis.v1`을 만족한다
+3. Snapshot 계약이 필수 필드(`reportContext`) 누락을 거부한다
+4. Analysis 계약이 필수 필드(`achievement`) 누락을 거부한다
+5. Analysis 계약이 폐기된 `analysisStatus: "COMPLETE"`를 거부한다 (D1 회귀 방지)
+6. Analysis 계약이 4번째 issue를 거부한다 (`maxItems: 3`)
+7. Snapshot 계약이 계약에 없는 최상위 키 `policy`를 거부한다
+   (`additionalProperties: false`)
+8. 런타임 Schema 사본이 `docs/contracts` 정본과 바이트 단위로 동일하다
+
+**mutation 검증**: 검증기가 살아 있는지 확인하기 위해 fixture의
+`reportContext.period.from`을 `"2026-07-20"`에서 `"2026/07/20"`으로 일부러
+깨뜨렸다. `snapshotExampleSatisfiesItsContract`가 실패했고, 이는
+`formatAssertionsEnabled(true)` 설정이 실제로 `date` format을 검사한다는
+증거다. 복구 후 다시 8/8 통과했다.
+
+**의존성**: `com.networknt:json-schema-validator:1.5.2` (test scope). 저장소에
+JSON Schema 검증 라이브러리가 없었다. `dependency:tree`로 단일 트리 확인.
+
+**회귀 delta 0**: M0 적용 전후로 전체 스위트의 실패 집합이 동일하다
+(176 tests, 6 failures). 아래 `기존 실패 baseline` 참조.
+
+**fixture 내용의 D 결정 반영**: `analysisStatus: "NORMAL"`(D1),
+`achievement.status: "AVAILABLE"`(D2), `safeLabel`은 비식별 의미 라벨만
+사용(D2 — "승인 후 담당자가 없는 지연 업무" 등), 기간은
+`2026-07-20`(월) ~ `2026-07-27` 배타 7일(D3).
+
 ### M1 — SDK 4.47.0 승격과 클라이언트 격리
 
 목표: 공식 SDK 버전을 올리고 `OpenAIClient` Bean을 v7-2 정책으로 맞춘다.
@@ -1433,25 +1503,41 @@ diff 검토 (저장소 루트):
 - **R8 (기능 후퇴, 해소됨).** D7이 "실제 PDF 유지"로 확정되었으므로
   다운로드 기능 후퇴는 발생하지 않는다. 구현 시 주의: v7-2 §9.3의 초안
   문구(`/download`, `text/html`)를 참고하지 않도록 명세를 이미 교정했다.
-- **R9 (프로세스, 높음 — M1 선행 조건).** 작업 트리에 v7-2와 무관한 미커밋
-  변경(Java 21→25: `backend/pom.xml`·`.github/workflows/ci.yml`·
-  `backend/Dockerfile`, 그리고 `BasicReportAccessService` 무료 제한 제거)이
-  있다. 특히 `backend/pom.xml`은 M1의 SDK 버전 변경과 **같은 파일**이라
-  긴 구현 내내 `git add -p`로 hunk를 골라내야 한다. 실수 가능성이 높다.
-  완화: **M1 착수 전에 다음 중 하나를 반드시 먼저 수행한다.**
+- **R9 (프로세스, 해소됨 — 2026-07-31).** 작업 트리에 있던 미커밋 변경 4개를
+  파일별로 판정했다. **"전부 stash" 또는 "전부 커밋"은 둘 다 틀린 처리였다.**
+  초안이 세 선택지(별도 커밋 / stash / 별도 worktree)를 동등하게 적은 것은
+  잘못이며, 실제로는 파일마다 답이 달랐다.
 
-      (1) 기존 변경을 별도 커밋으로 정리한다 (권장 — 이력이 남고 되돌리기 쉽다)
-          git add backend/pom.xml .github/workflows/ci.yml backend/Dockerfile
-          git commit -m "chore: bump toolchain to Java 25"
-          git add backend/src/main/java/.../BasicReportAccessService.java
-          git commit -m "fix(report): drop free-plan weekly download limit"
+  (1) `BasicReportAccessService.java` — **커밋해야 했다.** 이미 커밋되어 있던
+      `GroupInvitationApiTest.freeAndPersonalReportsAreUnlimitedWhileGroupScopeStillRequiresLeader`
+      가 FREE 그룹 리포트 무제한과 `remainingThisWeek` 부재를 요구하는데,
+      HEAD의 구현은 여전히 주 2회 제한과 `remainingThisWeek`를 반환했다.
+      stash하면 이 테스트가 깨진다. 무관한 WIP가 아니라 **커밋된 정책 테스트에
+      빠져 있던 구현 조각**이었다.
+      처리: baseline 복구 커밋 `a9fd3e3`
+      (`fix(report): align basic report access with unlimited policy`).
+      Issue #2 구현 범위가 아니라 착수 전 정합성 복구다.
+      근거: 복원 후 `-Dtest=GroupInvitationApiTest` 7/7 통과.
 
-      (2) git stash push 로 격리한 뒤 v7-2 작업을 진행한다
+  (2) `backend/pom.xml`의 `java.version=25`, `.github/workflows/ci.yml`,
+      `backend/Dockerfile` — **트리에서 제외해야 했다.** 로컬 JDK가 21이라
+      컴파일 자체가 불가능하다.
 
-      (3) 깨끗한 별도 git worktree에서 v7-2를 구현한다
+          [INFO] Compiling 194 source files with javac [release 25]
+          [ERROR] Fatal error compiling: error: release version 25 not supported
 
-  이 격리가 끝나기 전에는 M1을 시작하지 않는다. `git add -p`에 계속 의존하는
-  방식은 채택하지 않는다.
+      즉 원래 작업 트리는 빌드되지 않는 상태였고, 이 상태로는 M0~M11의
+      어떤 검증도 로컬에서 할 수 없다.
+      처리: 세 파일을 HEAD로 되돌렸다. 원본은 `stash@{0}`
+      (`wip: unrelated changes before v7-2 M0`)에 보존되어 있고 삭제하지
+      않는다. **v7-2 M0~M11에서는 이 stash를 사용하지 않는다.**
+      현재 저장소 기준은 Spring Boot 3.3.5 + Java 21이며 v7-2 구현에 Java 25가
+      필요한 이유가 없다. Java 25 승격이 실제 팀 결정이라면 별도 Issue·별도
+      브랜치에서 JDK·CI·Docker를 동시에 검증해야 하는 독립 작업이다.
+
+  잔여 규칙: v7-2 커밋에서 `backend/pom.xml`의 staged diff에 Java 버전 변경이나
+  OpenAI SDK 버전 변경이 섞이지 않았는지 `git diff --cached`로 매번 확인한다.
+
 - **R10 (검증 공백, 중간).** E2E가 CI 게이트가 아니고 Playwright가
   `package.json`/`package-lock.json`에 없다. v7-2 4페이지 구조를 지키는
   회귀 그물이 로컬에만 존재한다. 완화: 백엔드 HTML 회귀 테스트(M9)를
@@ -1468,10 +1554,20 @@ diff 검토 (저장소 루트):
   있다. 잔여 주의: 구현 중 명세와 Schema가 다시 어긋나 보이면 **Schema를
   고치지 말고** 작업을 멈추고 계획 변경 승인을 받는다.
 
-- **R14 (프로세스, 중간).** 1452줄 계획을 한 번에 실행하면 작업 범위가
+- **R14 (프로세스, 중간).** 계획 전체를 한 번에 실행하면 작업 범위가
   폭발하고 중간 검증 지점이 사라진다. 완화: 한 채팅 = 한 milestone =
   한 검증 가능한 결과 = 가능하면 한 커밋. `M0~M11을 구현해` 같은 지시를
   금지한다(`Progress`의 실행 규칙 항목).
+
+- **R15 (검증 공백, 높음 — M1 차단).** `OpenAiResponsesNarrativeAdapterTest`
+  5건이 현재 환경에서 `Unable to establish loopback connection`으로 전부
+  실패한다. M1은 OpenAI SDK를 `4.45.0 -> 4.47.0`으로 올리는데, **그 변경의
+  회귀를 확인해 줄 유일한 테스트가 바로 이 5건이다.** 실행되지 않는 상태로
+  SDK를 올리면 승격 근거가 없다.
+  완화: M1 착수 전에 별도 Issue로 해결한다. 해결 기준은 (a) 로컬 loopback
+  포트에 의존하지 않는 Fake/Stub transport를 쓰거나 현재 환경에서 반복적으로
+  성공하는 테스트 서버 구조로 바꾸고, (b) 정상·refusal·incomplete·malformed·
+  429·5xx·timeout을 모두 검증하며, (c) 실제 OpenAI API를 호출하지 않는 것이다.
 
 
 ## Idempotence and Recovery
@@ -1544,6 +1640,52 @@ diff 검토 (저장소 루트):
 `infrastructure.openai` 하위에서만 쓴다.
 
 
+## 기존 실패 baseline (M0 이전부터 존재)
+
+전체 백엔드 스위트는 현재 녹색이 아니다. M0 적용 **전후로 실패 집합이 동일**
+하므로 M0의 회귀 delta는 0이다.
+
+    Tests run: 176, Failures: 1, Errors: 5, Skipped: 0
+
+재현 근거: 커밋 `f455634`만 체크아웃한 별도 git worktree
+(`git worktree add <tmp> HEAD`)에서 두 테스트 클래스를 실행해 동일한 실패를
+확인했다. 즉 이 6건은 M0이 만든 것이 아니다.
+
+### AuthSecurityApiTest 1건 — 기존 결함, v7-2 무관
+
+    AuthSecurityApiTest.publicDemoIssuesAReadOnlySession:149
+      Status expected:<403> but was:<400>
+
+M0도 M1도 막지 않는다. 별도 Issue로 분리한다.
+제목: `fix(auth): restore expected read-only demo session response`
+
+### OpenAiResponsesNarrativeAdapterTest 5건 — M1 차단 요인
+
+    sendsOfficialSdkStatelessStructuredRequestAndParsesNarrative
+    mapsRefusalAndMalformedStructuredOutputToSafeErrors
+    mapsRateLimitAndProviderFailuresWithoutRetrying
+    mapsTimeoutToGatewayTimeout
+    rejectsCallsWhenOpenAiIsNotConfigured
+      -> IO Unable to establish loopback connection
+
+이 테스트들은 `com.sun.net.httpserver`로 로컬 스텁 서버를 띄운다. 현재 환경에서
+그 바인딩이 실패한다(같은 환경에서 Python 소켓 바인딩은 성공하므로 JVM/샌드박스
+쪽 문제로 보인다).
+
+M0는 막지 않지만 **M1 착수 전에 반드시 해결한다.** M1은 OpenAI SDK를
+`4.45.0 -> 4.47.0`으로 올리는 작업이고, 그 승격의 회귀를 확인해 줄 유일한
+테스트가 이 5건이기 때문이다. 위험 R15 참조.
+별도 Issue 제목:
+`test(report): remove environment-dependent loopback failures from OpenAI adapter tests`
+
+해결 기준:
+
+- 로컬 loopback 포트에 의존하지 않는 Fake/Stub transport를 쓰거나, 현재 실행
+  환경에서 반복적으로 성공하는 테스트 서버 구조로 바꾼다
+- 정상, refusal, incomplete, malformed, 429, 5xx, timeout을 모두 검증한다
+- 실제 OpenAI API를 호출하지 않는다
+
+
 ## Artifacts and Notes
 
 Issue #2 기준 커밋 확인:
@@ -1601,6 +1743,17 @@ spec §10.6의 같은 필드:
 
 
 ## Revision note
+
+- 2026-07-31 (16:00+09:00) — M0 완료 및 작업 트리 판정 결과 반영.
+  `Progress`에 push·트리 정리·M0 완료를 기록하고, 다음 게이트가 M1이 아니라
+  OpenAI adapter 테스트 복구임을 명시했다. M0 milestone에 8개 테스트 목록,
+  mutation 검증 결과, 회귀 delta 0을 추가했다. 위험 R9를 "세 선택지 중 하나"에서
+  **파일별 실제 처리 결과**로 정정했다(전부 stash와 전부 커밋 모두 오답이었던
+  근거 포함). 위험 R15(OpenAI adapter 테스트가 M1을 차단)를 신설했다.
+  `기존 실패 baseline` 절을 신설해 176 tests / 6 failures와 clean worktree
+  재현 근거, 두 건의 분리 Issue 기준을 기록했다. `Decision Log`에 파일별 격리·
+  Java 25 기각·M1 선행 조건 세 건을 추가하고 `Outcomes & Retrospective`를
+  갱신했다.
 
 - 2026-07-31 (15:00+09:00) — D1~D7 제품 결정 확정 반영. `Open Product
   Decisions`를 `Confirmed Product Decisions`로 교체했다. 확정 결과에 따라
