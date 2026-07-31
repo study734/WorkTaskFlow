@@ -141,9 +141,24 @@ public class AiWeeklyReportSnapshotAssembler {
                 "완료된 주간만 AI 리포트를 생성할 수 있습니다.");
     }
 
-    /** 활동 이력이 없는 기존 업무는 legacy 스냅샷으로 대체한다. */
+    /**
+     * 기간에 속한 업무를 taskId 기준으로 합친다.
+     *
+     * <p>활동 이력이 있는 업무는 latest 스냅샷이 정본이다. 기간 안에 이력이 전혀 없는 기존
+     * 업무는 latest에 나타나지 않으므로 legacy 스냅샷으로 보완한다. 예전에는 둘 중 하나만
+     * 골랐기 때문에, 일부 업무에만 이력이 있으면 나머지 업무가 통째로 사라졌다.
+     */
     private List<TaskSnapshot> snapshotsOf(TaskReportDataQuery.PeriodData data) {
-        return data.activityEvents().isEmpty() ? data.legacySnapshots() : data.latestSnapshots();
+        Map<Long, TaskSnapshot> merged = new LinkedHashMap<>();
+        for (TaskSnapshot snapshot : data.latestSnapshots()) {
+            merged.putIfAbsent(snapshot.taskId(), snapshot);
+        }
+        for (TaskSnapshot snapshot : data.legacySnapshots()) {
+            merged.putIfAbsent(snapshot.taskId(), snapshot);
+        }
+        return merged.values().stream()
+                .sorted(Comparator.comparing(TaskSnapshot::taskId))
+                .toList();
     }
 
     private TaskReportDataQuery.PeriodData periodData(Long groupId, LocalDate from,
@@ -359,13 +374,17 @@ public class AiWeeklyReportSnapshotAssembler {
 
     // ---------- 유틸 ----------
 
+    /**
+     * ref는 엔티티 식별자를 그대로 담는다. 순번을 매기면 저장된 Snapshot만으로는 어떤 업무를
+     * 가리키는지 되찾을 수 없어, 표시 단계에서 실제 제목·이름을 다시 붙일 수 없다.
+     * 식별자는 원문(제목·댓글·실명)이 아니므로 개인정보 경계를 넘지 않는다.
+     */
     private Map<Long, String> refs(List<Long> ids, String prefix) {
         Map<Long, String> refs = new LinkedHashMap<>();
         List<Long> sorted = new ArrayList<>(ids);
-        sorted.sort(Comparator.naturalOrder());
-        int index = 1;
+        sorted.sort(Comparator.nullsLast(Comparator.naturalOrder()));
         for (Long id : sorted) {
-            if (id != null && !refs.containsKey(id)) refs.put(id, prefix + "-" + index++);
+            if (id != null) refs.putIfAbsent(id, prefix + "-" + id);
         }
         return refs;
     }

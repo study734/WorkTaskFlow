@@ -4,7 +4,12 @@ import { errorMessage } from '../../../api/client';
 import { GroupResponse } from '../../../api/groupApi';
 import { reportApi } from '../../../api/reportApi';
 import { useLanguage } from '../../../app/LanguageContext';
-import { lastCompletedWeekStart } from '../../../app/week';
+import {
+  isCompletedWeek as weekIsCompleted,
+  lastCompletedWeekStart,
+  weekEndInclusive,
+  weekToExclusive,
+} from '../../../app/week';
 
 type Props = {
   groupId: number;
@@ -16,45 +21,6 @@ type Props = {
   };
 };
 
-function getToExclusive(fromStr: string): string {
-  const d = new Date(`${fromStr}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return fromStr;
-  d.setDate(d.getDate() + 7);
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const date = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${month}-${date}`;
-}
-
-function formatInclusiveEnd(fromStr: string): string {
-  const d = new Date(`${fromStr}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return fromStr;
-  d.setDate(d.getDate() + 6);
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const date = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${month}-${date}`;
-}
-
-function getZonedTodayString(timeZone?: string): string {
-  const now = new Date();
-  if (!timeZone) {
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const date = String(now.getDate()).padStart(2, '0');
-    return `${now.getFullYear()}-${month}-${date}`;
-  }
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-  }).formatToParts(now);
-  const number = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value);
-  const year = number('year');
-  const month = String(number('month')).padStart(2, '0');
-  const day = String(number('day')).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
   const { language, t } = useLanguage();
   const navigate = useNavigate();
@@ -65,15 +31,13 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
   const supportedSelection = selection.scope === 'GROUP' && selection.period === 'WEEKLY';
 
   const fromDate = selection.from;
-  const toExclusive = getToExclusive(fromDate);
-  const todayStr = getZonedTodayString(group?.timezone);
+  const toExclusive = weekToExclusive(fromDate);
 
-  // Check if week is completed: toExclusive must be <= today
-  const isCompletedWeek = toExclusive <= todayStr;
+  // 사용자가 고른 주간을 몰래 이전 주로 바꾸지 않는다. 끝나지 않은 주간이면 그대로 막는다.
+  const isCompletedWeek = weekIsCompleted(fromDate, group?.timezone);
 
   const recentCompletedStart = lastCompletedWeekStart(group?.timezone);
-  const recentCompletedEnd = formatInclusiveEnd(recentCompletedStart);
-  const recentCompletedText = `${recentCompletedStart} ~ ${recentCompletedEnd}`;
+  const recentCompletedText = `${recentCompletedStart} ~ ${weekEndInclusive(recentCompletedStart)}`;
 
   async function handleGenerate() {
     if (!isCompletedWeek) {
