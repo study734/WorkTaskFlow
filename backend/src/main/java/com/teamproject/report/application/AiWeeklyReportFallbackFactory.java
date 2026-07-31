@@ -99,9 +99,10 @@ public class AiWeeklyReportFallbackFactory {
                     ? DecisionOptionCode.KEEP_CURRENT_PLAN
                     : candidate.allowedOptionCodes().get(0);
 
+            // candidateRef를 문장에 넣지 않는다. projection이 ref를 표시 문구로 바꾸므로
+            // "위험 대응 조치 (해당 위험 후보)"처럼 같은 말이 겹친다. 구조화 필드로 이미 나간다.
             IssueDecision decision = new IssueDecision(
-                    ko ? "위험 대응 조치 (" + candidate.candidateRef() + ")"
-                            : "Risk response (" + candidate.candidateRef() + ")",
+                    ko ? "위험 대응 조치" : "Risk response",
                     ko ? "제시된 대응 조치 옵션을 승인 및 이행하시겠습니까?"
                             : "Approve and carry out the proposed response option?",
                     recOption,
@@ -118,8 +119,8 @@ public class AiWeeklyReportFallbackFactory {
                     priority,
                     candidate.candidateRef(),
                     candidate.severity(),
-                    ko ? "위험 후보 " + candidate.candidateRef() + " (" + candidate.riskCode() + ")"
-                            : "Risk candidate " + candidate.candidateRef() + " (" + candidate.riskCode() + ")",
+                    ko ? "위험 후보 (" + candidate.riskCode() + ")"
+                            : "Risk candidate (" + candidate.riskCode() + ")",
                     ko ? "지정된 신호 및 마감 상태에 따른 서버 기본 검토 항목입니다."
                             : "A server baseline review item from the recorded signals and due state.",
                     Confidence.HIGH,

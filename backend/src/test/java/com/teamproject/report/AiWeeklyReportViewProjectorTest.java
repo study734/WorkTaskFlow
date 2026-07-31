@@ -6,6 +6,7 @@ import com.teamproject.group.domain.GroupMember;
 import com.teamproject.group.domain.GroupMemberRepository;
 import com.teamproject.group.domain.GroupRepository;
 import com.teamproject.report.application.AiWeeklyReportFallbackFactory;
+import com.teamproject.report.application.AiWeeklyReportPolicyEngine;
 import com.teamproject.report.application.AiWeeklyReportSnapshotAssembler;
 import com.teamproject.report.application.AiWeeklyReportViewProjector;
 import com.teamproject.report.application.dto.AiWeeklyReportAnalysisDtos.AiWeeklyReportAnalysisV1;
@@ -57,6 +58,7 @@ class AiWeeklyReportViewProjectorTest {
     @Autowired EntityManager entityManager;
 
     private final AiWeeklyReportFallbackFactory fallback = new AiWeeklyReportFallbackFactory();
+    private final AiWeeklyReportPolicyEngine policyEngine = new AiWeeklyReportPolicyEngine();
     private final ObjectMapper json = new ObjectMapper();
 
     @Test
@@ -273,6 +275,38 @@ class AiWeeklyReportViewProjectorTest {
         assertThat(view.executiveJudgment().headline())
                 .isEqualTo("정책 정리는 정책 정리를 정책 정리가 정책 정리와 정책 정리로 끝난다.");
         assertThat(view.executiveJudgment().interpretation()).isEqualTo("정책 정리가 남아 있다.");
+    }
+
+    /**
+     * ref 치환을 넣은 뒤 fallback 경로를 투영해 보지 않아 회귀를 놓쳤다. fallback이 문장에
+     * candidateRef를 박아 두면 치환이 "위험 후보 해당 위험 후보"처럼 같은 말을 겹치게 만든다.
+     * 검증을 OPENAI 경로로만 했던 것이 원인이라 fallback 투영을 따로 고정한다.
+     */
+    @Test
+    @DisplayName("위험 후보가 있는 fallback을 투영해도 문구가 겹치지 않는다")
+    void projectsFallbackWithRiskCandidatesWithoutDoubledWording() {
+        Fixture fixture = fixture();
+        Task unassigned = task(fixture, "담당자 없는 업무", Task.Status.TODO, null);
+        ReflectionTestUtils.setField(unassigned, "assignee", null);
+        tasks.save(unassigned);
+        flush();
+
+        AiWeeklyReportSnapshotV1 snapshot = policyEngine.evaluate(assembler.assemble(
+                fixture.group.getId(), FROM, TO_EXCLUSIVE, Language.KO, "v7-2-prompt-001"));
+        assertThat(snapshot.riskCandidates()).isNotEmpty();
+
+        AiWeeklyReportView view;
+        try {
+            view = projector.project(revision(fixture, json.writeValueAsString(snapshot),
+                    json.writeValueAsString(fallback.create(snapshot)), "SERVER_FALLBACK"));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+
+        assertThat(view.issues()).isNotEmpty();
+        assertThat(proseOf(view))
+                .noneMatch(text -> text.contains("해당 위험 후보"))
+                .noneMatch(text -> text.matches(".*(TASK|MEMBER|EVENT|RISK)-\\d+.*"));
     }
 
     /** 사용자에게 문장으로 보이는 필드 전부. 구조화된 ref 배열은 계약상 ref를 그대로 담는다. */
