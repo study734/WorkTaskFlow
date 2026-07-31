@@ -7,7 +7,6 @@ import { useLanguage } from '../../../app/LanguageContext';
 import {
   isCompletedWeek as weekIsCompleted,
   lastCompletedWeekStart,
-  mondayOf,
   weekEndInclusive,
   weekToExclusive,
 } from '../../../app/week';
@@ -31,12 +30,10 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
   const canManage = group?.membershipPlan === 'PAID' && group.role === 'LEADER';
   const supportedSelection = selection.scope === 'GROUP' && selection.period === 'WEEKLY';
 
-  // 화면의 주차 선택은 월요일 시작이 아닐 수 있다. 고른 날이 속한 주의 월요일만 잡고,
-  // 어느 기간으로 생성되는지 버튼 아래에 그대로 적는다. 다른 주로 몰래 옮기지 않는다.
-  const fromDate = mondayOf(selection.from);
+  const fromDate = selection.from;
   const toExclusive = weekToExclusive(fromDate);
-  const targetPeriodText = `${fromDate} ~ ${weekEndInclusive(fromDate)}`;
 
+  // 사용자가 고른 주간을 몰래 이전 주로 바꾸지 않는다. 끝나지 않은 주간이면 그대로 막는다.
   const isCompletedWeek = weekIsCompleted(fromDate, group?.timezone);
 
   const recentCompletedStart = lastCompletedWeekStart(group?.timezone);
@@ -91,12 +88,6 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
       >
         {pending ? t('생성 중...', 'Generating...') : t('AI 리포트', 'AI report')}
       </button>
-
-      {canManage && supportedSelection && (
-        <small style={{ color: '#4b5563' }}>
-          {t(`AI 리포트 기간: ${targetPeriodText}`, `AI report period: ${targetPeriodText}`)}
-        </small>
-      )}
 
       {!isCompletedWeek && canManage && supportedSelection && (
         <div className="uncompleted-week-notice" style={{ fontSize: '12px', color: '#d97706', marginTop: '4px' }}>
