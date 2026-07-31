@@ -23,7 +23,17 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.teamproject.common.exception.ApplicationException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.withSettings;
 
 @DataJpaTest
 class AiWeeklyReportGenerationServiceTest {
@@ -199,5 +209,63 @@ class AiWeeklyReportGenerationServiceTest {
 
         service.generate(initialRawSnapshot, baseCommand);
         assertThat(callCount.get()).isEqualTo(1);
+    }
+
+    /**
+     * revision 번호는 잠금 없이 계산한다. 두 요청이 같은 번호를 잡으면 뒤늦은 쪽이 유니크
+     * 제약에 걸리는데, 그 시점에는 OpenAI 호출이 이미 끝나 돈이 나간 뒤다. 예전에는 그대로
+     * 500이 났다(DataIntegrityViolationException 핸들러도 없다). 번호를 다시 세어 저장한다.
+     */
+    @Test
+    @DisplayName("revision 번호가 충돌하면 다시 세어 저장한다")
+    void retriesWhenTheRevisionNumberCollides() {
+        AiWeeklyReportRevisionRepository flaky = collidingOnceRepository();
+        AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
+                policyEngine, fallbackFactory::create, validator, fallbackFactory, flaky, json);
+
+        AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
+
+        assertThat(revision.getRevision()).isEqualTo(1);
+        assertThat(revisionRepository.findAll()).hasSize(1);
+    }
+
+    /** 재시도를 다 써도 실패하면 500이 아니라 계약을 지키는 409를 준다. */
+    @Test
+    @DisplayName("충돌이 계속되면 500 대신 409 코드로 알린다")
+    void reportsAConflictInsteadOfCrashing() {
+        AiWeeklyReportRevisionRepository alwaysColliding = alwaysCollidingRepository();
+        AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
+                policyEngine, fallbackFactory::create, validator, fallbackFactory, alwaysColliding, json);
+
+        assertThatThrownBy(() -> service.generate(initialRawSnapshot, baseCommand))
+                .isInstanceOf(ApplicationException.class)
+                .satisfies(thrown -> {
+                    ApplicationException e = (ApplicationException) thrown;
+                    assertThat(e.code()).isEqualTo("AI_REPORT_CONCURRENT_GENERATION");
+                    assertThat(e.status()).isEqualTo(HttpStatus.CONFLICT);
+                });
+    }
+
+    /** 첫 저장만 제약 위반으로 튕기고 두 번째는 실제 저장으로 넘긴다. */
+    private AiWeeklyReportRevisionRepository collidingOnceRepository() {
+        AtomicInteger saves = new AtomicInteger(0);
+        AiWeeklyReportRevisionRepository spy = mock(AiWeeklyReportRevisionRepository.class,
+                withSettings().defaultAnswer(invocation -> invocation.getMethod()
+                        .invoke(revisionRepository, invocation.getArguments())));
+        doAnswer(invocation -> {
+            if (saves.getAndIncrement() == 0) {
+                throw new DataIntegrityViolationException("duplicate revision");
+            }
+            return revisionRepository.saveAndFlush(invocation.getArgument(0));
+        }).when(spy).saveAndFlush(any());
+        return spy;
+    }
+
+    private AiWeeklyReportRevisionRepository alwaysCollidingRepository() {
+        AiWeeklyReportRevisionRepository spy = mock(AiWeeklyReportRevisionRepository.class,
+                withSettings().defaultAnswer(invocation -> invocation.getMethod()
+                        .invoke(revisionRepository, invocation.getArguments())));
+        doThrow(new DataIntegrityViolationException("duplicate revision")).when(spy).saveAndFlush(any());
+        return spy;
     }
 }

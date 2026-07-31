@@ -8,6 +8,9 @@ import com.teamproject.report.application.dto.AiWeeklyReportDtos.AiWeeklyReportS
 import com.teamproject.report.application.port.AiWeeklyReportGateway;
 import com.teamproject.report.domain.AiWeeklyReportRevision;
 import com.teamproject.report.domain.AiWeeklyReportRevisionRepository;
+import com.teamproject.common.exception.ApplicationException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,6 +33,8 @@ import java.util.Optional;
 public class AiWeeklyReportGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(AiWeeklyReportGenerationService.class);
+    /** revision 번호 충돌은 동시 요청 수만큼만 일어난다. 몇 번이면 충분하고, 무한 재시도는 하지 않는다. */
+    private static final int SAVE_ATTEMPTS = 3;
 
     private final AiWeeklyReportPolicyEngine policyEngine;
     private final AiWeeklyReportGateway gateway;
@@ -104,17 +109,9 @@ public class AiWeeklyReportGenerationService {
             }
         }
 
-        // 4. Determine revision number
-        int maxRevision = revisionRepository.findMaxRevision(
-                command.groupId(),
-                command.periodFrom(),
-                command.periodToExclusive(),
-                command.language()
-        ).orElse(0);
-
-        int nextRevision = maxRevision + 1;
-
         // 5. OpenAI Gateway call with fallback safety
+        // revision 번호는 호출 뒤에 정한다. 30초 걸리는 외부 호출 앞에서 잡아 두면
+        // 그 사이에 다른 요청이 같은 번호를 먼저 저장한다.
         AiWeeklyReportAnalysisV1 analysis;
         String mode = "OPENAI";
 
@@ -145,28 +142,72 @@ public class AiWeeklyReportGenerationService {
             throw new IllegalStateException("Analysis serialization failed", e);
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        return saveNewRevision(command, mode, fingerprint, snapshotJson, analysisJson);
+    }
 
-        AiWeeklyReportRevision newRevision = new AiWeeklyReportRevision(
-                command.groupId(),
-                command.periodFrom(),
-                command.periodToExclusive(),
-                command.language(),
-                nextRevision,
-                "FINALIZED",
-                mode,
-                fingerprint,
-                snapshotJson,
-                analysisJson,
-                command.promptVersion(),
-                command.model(),
-                null,
-                null,
-                now,
-                now
-        );
+    /**
+     * revision 번호는 (group, period, language) 안에서 유니크하다. 잠금이 없으므로 두 요청이
+     * 같은 번호를 계산할 수 있고, 그때 뒤늦은 쪽이 제약 위반으로 터진다. 외부 호출이 이미
+     * 끝난 뒤라 유료 결과를 버리고 500을 주게 된다. 번호를 다시 세어 몇 번 재시도한다.
+     *
+     * <p>OpenAI 호출은 이 밖에서 끝났다. 30초짜리 외부 호출을 DB 경합 구간에 두지 않는다.
+     */
+    private GenerationResult saveNewRevision(GenerateCommand command, String mode,
+            String fingerprint, String snapshotJson, String analysisJson) {
+        for (int attempt = 1; attempt <= SAVE_ATTEMPTS; attempt++) {
+            // 호출 중에 다른 요청이 먼저 저장했을 수 있다. 재생성을 고르지 않았다면 그것을 쓴다.
+            if (!command.regenerate()) {
+                Optional<AiWeeklyReportRevision> concurrent = findLatest(command);
+                if (concurrent.isPresent()) {
+                    return new GenerationResult(concurrent.get(), false);
+                }
+            }
 
-        return new GenerationResult(revisionRepository.save(newRevision), true);
+            int nextRevision = revisionRepository.findMaxRevision(
+                    command.groupId(), command.periodFrom(), command.periodToExclusive(),
+                    command.language()).orElse(0) + 1;
+
+            LocalDateTime now = LocalDateTime.now();
+            AiWeeklyReportRevision newRevision = new AiWeeklyReportRevision(
+                    command.groupId(),
+                    command.periodFrom(),
+                    command.periodToExclusive(),
+                    command.language(),
+                    nextRevision,
+                    "FINALIZED",
+                    mode,
+                    fingerprint,
+                    snapshotJson,
+                    analysisJson,
+                    command.promptVersion(),
+                    command.model(),
+                    null,
+                    null,
+                    now,
+                    now
+            );
+
+            try {
+                return new GenerationResult(revisionRepository.saveAndFlush(newRevision), true);
+            } catch (DataIntegrityViolationException collision) {
+                log.warn("AI weekly report revision number collided, retrying: groupId={} period={}..{} revision={} attempt={}",
+                        command.groupId(), command.periodFrom(), command.periodToExclusive(),
+                        nextRevision, attempt);
+                if (attempt == SAVE_ATTEMPTS) {
+                    throw new ApplicationException("AI_REPORT_CONCURRENT_GENERATION",
+                            HttpStatus.CONFLICT,
+                            "같은 기간의 리포트가 동시에 생성되고 있습니다. 잠시 후 다시 시도해 주세요.");
+                }
+            }
+        }
+        throw new IllegalStateException("unreachable");
+    }
+
+    private Optional<AiWeeklyReportRevision> findLatest(GenerateCommand command) {
+        return revisionRepository
+                .findTopByGroupIdAndPeriodFromAndPeriodToExclusiveAndLanguageOrderByRevisionDesc(
+                        command.groupId(), command.periodFrom(), command.periodToExclusive(),
+                        command.language());
     }
 
     public String computeFingerprint(String snapshotJson, String promptVersion, String model) {
