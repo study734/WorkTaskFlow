@@ -71,8 +71,11 @@ export function AppNavigation({ unreadCount }: { unreadCount?: number }) {
   </nav>;
 }
 
-export function Modal({ title, description, onClose, children }: {
-  title: string; description?: string; onClose: () => void; children: ReactNode;
+export function Modal({ title, description, onClose, hideCloseIcon = false, children }: {
+  title: string; description?: string; onClose: () => void;
+  /** 본문에 닫기 버튼이 따로 있으면 헤더의 ×를 숨겨 같은 기능을 두 번 두지 않는다. */
+  hideCloseIcon?: boolean;
+  children: ReactNode;
 }) {
   const { t } = useLanguage();
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -156,7 +159,7 @@ export function Modal({ title, description, onClose, children }: {
     if (event.target === event.currentTarget) onClose();
   }}>
     <section ref={dialogRef} className="app-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
-      <header><div><h2 id={titleId}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="modal-close" onClick={onClose} aria-label={t('닫기', 'Close')}>×</button></header>
+      <header><div><h2 id={titleId}>{title}</h2>{description && <p>{description}</p>}</div>{!hideCloseIcon && <button type="button" className="modal-close" onClick={onClose} aria-label={t('닫기', 'Close')}>×</button>}</header>
       {children}
     </section>
   </div>;

@@ -23,6 +23,8 @@ export type GenerateReportResponse = {
   analysisMode: 'OPENAI' | 'SERVER_FALLBACK';
   generatedAt: string;
   downloadUrl: string;
+  /** false면 서버가 저장된 revision을 그대로 돌려준 것이다. OpenAI를 부르지 않았다. */
+  createdNew: boolean;
 };
 
 export type ExecutiveJudgmentView = {
@@ -186,6 +188,12 @@ export const reportApi = {
     request<AiWeeklyReportView>(`/groups/${groupId}/reports/ai-weekly/${reportId}`, {}, true),
   downloadAiWeeklyPdf: async (groupId: number, reportId: number, from: string, revision: number) => {
     const result = await requestBlob(`/groups/${groupId}/reports/ai-weekly/${reportId}/pdf`, `ai-weekly-report-${from}-r${revision}.pdf`);
+    saveBlob(result.blob, result.filename);
+  },
+  // 기본 리포트와 같다. 서버가 완성된 HTML을 주고 PDF 저장은 브라우저 인쇄로 한다.
+  downloadAiWeeklyDocument: async (groupId: number, reportId: number, from: string, revision: number) => {
+    const result = await requestBlob(`/groups/${groupId}/reports/ai-weekly/${reportId}/download`,
+      `toesa-ai-weekly-${groupId}-${from}-r${revision}.html`);
     saveBlob(result.blob, result.filename);
   },
 };

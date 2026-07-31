@@ -22,6 +22,8 @@ public class AiWeeklyReportFallbackFactory {
             throw new IllegalArgumentException("Snapshot must not be null");
         }
 
+        // 문서와 같은 언어로 써야 한다. Snapshot이 이미 요청 언어를 담고 있다.
+        boolean ko = isKorean(snapshot);
         List<RiskCandidate> riskCandidates = snapshot.riskCandidates() != null ? snapshot.riskCandidates() : List.of();
         AnalysisStatus status = riskCandidates.isEmpty() ? AnalysisStatus.NO_ACTION_REQUIRED : AnalysisStatus.NORMAL;
 
@@ -46,8 +48,8 @@ public class AiWeeklyReportFallbackFactory {
             ejEvidenceTasks.add(snapshot.tasks().get(0).taskRef());
         }
 
-        String headline = headline(snapshot);
-        String interpretation = interpretation(snapshot, riskCandidates.isEmpty());
+        String headline = headline(snapshot, ko);
+        String interpretation = interpretation(snapshot, riskCandidates.isEmpty(), ko);
 
         ExecutiveJudgment executiveJudgment = new ExecutiveJudgment(
                 headline,
@@ -71,8 +73,9 @@ public class AiWeeklyReportFallbackFactory {
         if (completedTask != null) {
             achievement = new Achievement(
                     AchievementStatus.AVAILABLE,
-                    "주간 업무 완료 성과",
-                    "해당 기간 중 성공적으로 완료 처리된 업무입니다.",
+                    ko ? "기간 내 업무 완료" : "Task completed in this period",
+                    ko ? "해당 기간 중 완료 처리가 확인된 업무입니다."
+                            : "A task confirmed as completed within this period.",
                     List.of(completedTask.taskRef())
             );
         } else {
@@ -97,10 +100,13 @@ public class AiWeeklyReportFallbackFactory {
                     : candidate.allowedOptionCodes().get(0);
 
             IssueDecision decision = new IssueDecision(
-                    "위험 대응 조치 (" + candidate.candidateRef() + ")",
-                    "제시된 대응 조치 옵션을 승인 및 이행하시겠습니까?",
+                    ko ? "위험 대응 조치 (" + candidate.candidateRef() + ")"
+                            : "Risk response (" + candidate.candidateRef() + ")",
+                    ko ? "제시된 대응 조치 옵션을 승인 및 이행하시겠습니까?"
+                            : "Approve and carry out the proposed response option?",
                     recOption,
-                    "서버 정책 엔진이 승인한 대응 절차에 따라 진행하십시오.",
+                    ko ? "서버 정책 엔진이 승인한 대응 절차에 따라 진행하십시오."
+                            : "Proceed with the response steps allowed by the server policy engine.",
                     "LEADER",
                     "CURRENT_ASSIGNEE",
                     new IssueDeadline("LEADER_DECISION_REQUIRED", null),
@@ -112,14 +118,18 @@ public class AiWeeklyReportFallbackFactory {
                     priority,
                     candidate.candidateRef(),
                     candidate.severity(),
-                    "위험 후보 " + candidate.candidateRef() + " (" + candidate.riskCode() + ")",
-                    "지정된 신호 및 마감 상태에 따른 서버 기본 검토 항목입니다.",
+                    ko ? "위험 후보 " + candidate.candidateRef() + " (" + candidate.riskCode() + ")"
+                            : "Risk candidate " + candidate.candidateRef() + " (" + candidate.riskCode() + ")",
+                    ko ? "지정된 신호 및 마감 상태에 따른 서버 기본 검토 항목입니다."
+                            : "A server baseline review item from the recorded signals and due state.",
                     Confidence.HIGH,
                     issueTaskRefs,
                     candidate.evidenceCodes(),
                     List.of(),
-                    "확정 데이터 기준 기본 정책에 따라 대응이 필요합니다.",
-                    "제시된 조치 옵션 선택 및 실행 주체 지정",
+                    ko ? "확정 데이터 기준 기본 정책에 따라 대응이 필요합니다."
+                            : "The baseline policy requires a response based on confirmed data.",
+                    ko ? "제시된 조치 옵션 선택 및 실행 주체 지정"
+                            : "Choose a response option and name the action owner",
                     decision
             );
             issues.add(issue);
@@ -142,42 +152,47 @@ public class AiWeeklyReportFallbackFactory {
      * Snapshot에 이미 확정된 숫자만 문장으로 옮긴다. 새 숫자는 만들지 않는다.
      * 위험 후보가 하나도 없더라도 KPI와 workflow 현황은 그대로 전달한다.
      */
-    private String headline(AiWeeklyReportSnapshotV1 snapshot) {
+    private String headline(AiWeeklyReportSnapshotV1 snapshot, boolean ko) {
         SnapshotMetrics metrics = snapshot.metrics();
         SnapshotWorkflow workflow = snapshot.workflow();
         int total = metrics != null ? metrics.periodTaskCount() : 0;
         if (total == 0 || workflow == null) {
-            return "이번 주 기간에 집계된 확정 업무가 없습니다.";
+            return ko ? "이번 기간에 집계된 확정 업무가 없습니다."
+                    : "No confirmed tasks were recorded in this period.";
         }
-        return trim(String.format(
-                "이번 주 %d개 업무 중 %d개를 완료했고, %d개가 진행 중이며 %d개가 보류 상태입니다.",
-                total, workflow.completed(), workflow.inProgress(), workflow.onHold()),
+        return trim(ko
+                ? String.format("이번 기간 %d개 업무 중 %d개를 완료했고, %d개가 진행 중이며 %d개가 보류 상태입니다.",
+                        total, workflow.completed(), workflow.inProgress(), workflow.onHold())
+                : String.format("Of %d tasks this period, %d completed, %d in progress, and %d on hold.",
+                        total, workflow.completed(), workflow.inProgress(), workflow.onHold()),
                 HEADLINE_MAX);
     }
 
-    private String interpretation(AiWeeklyReportSnapshotV1 snapshot, boolean noRiskCandidates) {
+    private String interpretation(AiWeeklyReportSnapshotV1 snapshot, boolean noRiskCandidates, boolean ko) {
         SnapshotMetrics metrics = snapshot.metrics();
         SnapshotWorkflow workflow = snapshot.workflow();
         int total = metrics != null ? metrics.periodTaskCount() : 0;
         if (total == 0 || workflow == null) {
-            return "해당 기간에 확정된 업무 데이터가 없어 서버 기본 분석은 현황만 보고합니다.";
+            return ko ? "해당 기간에 확정된 업무 데이터가 없어 서버 기본 분석은 현황만 보고합니다."
+                    : "No confirmed task data in this period, so the server baseline analysis reports status only.";
         }
 
         List<String> sentences = new ArrayList<>();
-        sentences.add(rateSentence(metrics));
+        sentences.add(rateSentence(metrics, ko));
 
-        String attention = attentionSentence(metrics, workflow);
+        String attention = attentionSentence(metrics, workflow, ko);
         if (attention != null) {
             sentences.add(attention);
         }
 
-        String comparison = comparisonSentence(snapshot.comparison());
+        String comparison = comparisonSentence(snapshot.comparison(), ko);
         if (comparison != null) {
             sentences.add(comparison);
         }
 
         if (noRiskCandidates) {
-            sentences.add("확정 수치 기준으로 추가 조치가 필요한 위험 후보는 선정되지 않았습니다.");
+            sentences.add(ko ? "확정 수치 기준으로 추가 조치가 필요한 위험 후보는 선정되지 않았습니다."
+                    : "Confirmed metrics selected no risk candidate needing further action.");
         }
 
         StringBuilder text = new StringBuilder();
@@ -189,54 +204,76 @@ public class AiWeeklyReportFallbackFactory {
         return text.toString();
     }
 
-    private String rateSentence(SnapshotMetrics metrics) {
-        StringBuilder text = new StringBuilder();
-        text.append("완료율은 ")
-                .append(metrics.completionRatePercent() == null ? "집계할 수 없음"
-                        : metrics.completionRatePercent() + "%")
-                .append("이고");
-        if (metrics.onTimeRatePercent() != null) {
-            text.append(", 완료 업무의 정시 완료율은 ")
-                    .append(metrics.onTimeRatePercent()).append("%입니다.");
-        } else {
-            text.append(", 완료 업무가 없어 정시 완료율은 집계되지 않았습니다.");
+    private String rateSentence(SnapshotMetrics metrics, boolean ko) {
+        String rate = metrics.completionRatePercent() == null
+                ? (ko ? "집계할 수 없음" : "not available")
+                : metrics.completionRatePercent() + "%";
+        if (ko) {
+            return metrics.onTimeRatePercent() != null
+                    ? "완료율은 " + rate + "이고, 완료 업무의 정시 완료율은 " + metrics.onTimeRatePercent() + "%입니다."
+                    : "완료율은 " + rate + "이고, 완료 업무가 없어 정시 완료율은 집계되지 않았습니다.";
         }
-        return text.toString();
+        return metrics.onTimeRatePercent() != null
+                ? "Completion rate is " + rate + ", and on-time delivery among completed tasks is "
+                        + metrics.onTimeRatePercent() + "%."
+                : "Completion rate is " + rate + ", and on-time delivery is not measured because no task was completed.";
     }
 
     /** 확인이 필요한 항목은 0이 아닌 것만 적는다. 없으면 없다고 분명히 적는다. */
-    private String attentionSentence(SnapshotMetrics metrics, SnapshotWorkflow workflow) {
+    private String attentionSentence(SnapshotMetrics metrics, SnapshotWorkflow workflow, boolean ko) {
         List<String> items = new ArrayList<>();
-        if (metrics.delayedCount() > 0) items.add("지연 업무 " + metrics.delayedCount() + "건");
-        if (workflow.requested() > 0) items.add("승인 대기 업무 " + workflow.requested() + "건");
+        if (metrics.delayedCount() > 0) {
+            items.add(ko ? "지연 업무 " + metrics.delayedCount() + "건"
+                    : metrics.delayedCount() + " overdue");
+        }
+        if (workflow.requested() > 0) {
+            items.add(ko ? "승인 대기 업무 " + workflow.requested() + "건"
+                    : workflow.requested() + " awaiting approval");
+        }
         if (workflow.acceptedUnassigned() > 0) {
-            items.add("담당자 미지정 업무 " + workflow.acceptedUnassigned() + "건");
+            items.add(ko ? "담당자 미지정 업무 " + workflow.acceptedUnassigned() + "건"
+                    : workflow.acceptedUnassigned() + " unassigned");
         }
         if (workflow.assignedNotStarted() > 0) {
-            items.add("착수 전 업무 " + workflow.assignedNotStarted() + "건");
+            items.add(ko ? "착수 전 업무 " + workflow.assignedNotStarted() + "건"
+                    : workflow.assignedNotStarted() + " not started");
         }
         if (items.isEmpty()) {
-            return "지연·승인 대기·담당자 미지정 업무는 없습니다.";
+            return ko ? "지연·승인 대기·담당자 미지정 업무는 없습니다."
+                    : "No overdue, pending-approval, or unassigned tasks.";
         }
-        return String.join("과 ", items) + "을 우선 확인해야 합니다.";
+        return ko
+                ? String.join("과 ", items) + "을 우선 확인해야 합니다."
+                : "Review " + String.join(", ", items) + " task(s) first.";
     }
 
-    private String comparisonSentence(SnapshotComparison comparison) {
+    private String comparisonSentence(SnapshotComparison comparison, boolean ko) {
         if (comparison == null || comparison.status() != ComparisonStatus.AVAILABLE) {
             return null;
         }
         List<String> deltas = new ArrayList<>();
         if (comparison.periodTaskCountDelta() != null) {
-            deltas.add("업무 수 " + signed(comparison.periodTaskCountDelta()) + "개");
+            deltas.add(ko ? "업무 수 " + signed(comparison.periodTaskCountDelta()) + "개"
+                    : "task count " + signed(comparison.periodTaskCountDelta()));
         }
         if (comparison.completionRatePointDelta() != null) {
-            deltas.add("완료율 " + signed(comparison.completionRatePointDelta()) + "%p");
+            deltas.add(ko ? "완료율 " + signed(comparison.completionRatePointDelta()) + "%p"
+                    : "completion rate " + signed(comparison.completionRatePointDelta()) + "%p");
         }
         if (comparison.delayedCountDelta() != null) {
-            deltas.add("지연 업무 " + signed(comparison.delayedCountDelta()) + "건");
+            deltas.add(ko ? "지연 업무 " + signed(comparison.delayedCountDelta()) + "건"
+                    : "overdue " + signed(comparison.delayedCountDelta()));
         }
         if (deltas.isEmpty()) return null;
-        return "지난 주 대비 " + String.join(", ", deltas) + " 변화입니다.";
+        return ko
+                ? "지난 기간 대비 " + String.join(", ", deltas) + " 변화입니다."
+                : "Versus the previous period: " + String.join(", ", deltas) + ".";
+    }
+
+    /** Snapshot이 담고 있는 요청 언어를 그대로 따른다. 없으면 한국어로 본다. */
+    private boolean isKorean(AiWeeklyReportSnapshotV1 snapshot) {
+        return snapshot.reportContext() == null
+                || snapshot.reportContext().language() != Language.EN;
     }
 
     private String signed(int value) {

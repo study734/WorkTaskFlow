@@ -28,7 +28,9 @@ public class AiWeeklyReportApiDtos {
             String status,
             String analysisMode,
             LocalDateTime generatedAt,
-            String downloadUrl
+            String downloadUrl,
+            /** 이번 요청으로 새로 만들었는지. false면 저장된 revision을 그대로 돌려준 것이다. */
+            boolean createdNew
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -168,7 +168,7 @@ class AiWeeklyReportFallbackFactoryTest {
         AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(empty);
 
         assertThat(fallback.executiveJudgment().headline())
-                .isEqualTo("이번 주 기간에 집계된 확정 업무가 없습니다.");
+                .isEqualTo("이번 기간에 집계된 확정 업무가 없습니다.");
         assertThat(fallback.achievement().status()).isEqualTo(AchievementStatus.NONE);
         assertThat(validator.validate(empty, fallback).valid()).isTrue();
         assertThat(validateSchema(ANALYSIS_SCHEMA, json.valueToTree(fallback))).isEmpty();
@@ -185,6 +185,46 @@ class AiWeeklyReportFallbackFactoryTest {
         assertThat(fallback.achievement().status()).isEqualTo(AchievementStatus.AVAILABLE);
         assertThat(fallback.achievement().evidenceTaskRefs())
                 .containsExactly(completed.taskRef());
+    }
+
+    /**
+     * EN 리포트인데 OpenAI가 실패하면 fallback 문장만 한국어로 남아 문서가 잡탕이 된다.
+     * Snapshot이 담고 있는 요청 언어를 그대로 따라야 한다.
+     */
+    @Test
+    @DisplayName("EN Snapshot이면 fallback 문장도 영어로 쓴다")
+    void writesEnglishSentencesForAnEnglishSnapshot() {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(withLanguage(Language.EN));
+
+        String headline = fallback.executiveJudgment().headline();
+        String interpretation = fallback.executiveJudgment().interpretation();
+
+        assertThat(headline).startsWith("Of ").contains("in progress").contains("on hold");
+        assertThat(interpretation).contains("Completion rate is");
+        assertThat(headline + interpretation).doesNotContain("업무").doesNotContain("완료율");
+        assertThat(fallback.achievement().headline()).isEqualTo("Task completed in this period");
+        assertThat(headline.length()).isLessThanOrEqualTo(160);
+        assertThat(interpretation.length()).isLessThanOrEqualTo(360);
+    }
+
+    @Test
+    @DisplayName("KO Snapshot이면 fallback 문장을 한국어로 쓴다")
+    void writesKoreanSentencesForAKoreanSnapshot() {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(withLanguage(Language.KO));
+
+        assertThat(fallback.executiveJudgment().headline()).contains("이번 기간").contains("보류 상태");
+        assertThat(fallback.executiveJudgment().interpretation()).contains("완료율은");
+        assertThat(fallback.achievement().headline()).isEqualTo("기간 내 업무 완료");
+    }
+
+    private AiWeeklyReportSnapshotV1 withLanguage(Language language) {
+        ReportContext context = snapshot.reportContext();
+        return new AiWeeklyReportSnapshotV1(
+                snapshot.schemaVersion(),
+                new ReportContext(context.groupRef(), context.period(), context.generatedAt(),
+                        language, context.promptVersion()),
+                snapshot.metrics(), snapshot.comparison(), snapshot.workflow(), snapshot.members(),
+                snapshot.tasks(), snapshot.calendarConstraints(), snapshot.riskCandidates());
     }
 
     private AiWeeklyReportSnapshotV1 withRiskCandidates(List<RiskCandidate> candidates) {

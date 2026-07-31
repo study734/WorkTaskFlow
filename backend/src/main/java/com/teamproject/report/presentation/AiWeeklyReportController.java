@@ -3,6 +3,7 @@ package com.teamproject.report.presentation;
 import com.teamproject.common.exception.ApplicationException;
 import com.teamproject.group.domain.GroupMember;
 import com.teamproject.report.application.AiWeeklyReportAccessService;
+import com.teamproject.report.application.AiWeeklyReportDocumentService;
 import com.teamproject.report.application.AiWeeklyReportGenerationService;
 import com.teamproject.report.application.AiWeeklyReportGenerationService.GenerateCommand;
 import com.teamproject.report.application.AiWeeklyReportSnapshotAssembler;
@@ -27,10 +28,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
 
 /**
  * v7-2 AI 주간 리포트 공식 HTTP REST Controller (M8).
@@ -45,6 +44,7 @@ public class AiWeeklyReportController {
     private final AiWeeklyReportRevisionRepository revisionRepository;
     private final WeeklyReportRepository legacyReportRepository;
     private final AiWeeklyReportViewProjector viewProjector;
+    private final AiWeeklyReportDocumentService documentService;
     private final ReportPdfRenderer pdfRenderer;
     private final OpenAiReportProperties properties;
     private final Clock clock;
@@ -56,6 +56,7 @@ public class AiWeeklyReportController {
             AiWeeklyReportRevisionRepository revisionRepository,
             WeeklyReportRepository legacyReportRepository,
             AiWeeklyReportViewProjector viewProjector,
+            AiWeeklyReportDocumentService documentService,
             ReportPdfRenderer pdfRenderer,
             OpenAiReportProperties properties,
             Clock clock
@@ -66,6 +67,7 @@ public class AiWeeklyReportController {
         this.revisionRepository = revisionRepository;
         this.legacyReportRepository = legacyReportRepository;
         this.viewProjector = viewProjector;
+        this.documentService = documentService;
         this.pdfRenderer = pdfRenderer;
         this.properties = properties;
         this.clock = clock;
@@ -115,7 +117,8 @@ public class AiWeeklyReportController {
                 revision.getStatus(),
                 revision.getAnalysisMode(),
                 revision.getGeneratedAt(),
-                downloadUrl
+                downloadUrl,
+                result.createdNew()
         );
 
         return ResponseEntity.status(status).body(response);
@@ -135,6 +138,38 @@ public class AiWeeklyReportController {
         AiWeeklyReportView view = viewProjector.project(revision);
 
         return ResponseEntity.ok(view);
+    }
+
+    /**
+     * 기본 리포트와 같은 방식이다. 서버가 완성된 HTML을 내려주고 인쇄·PDF 저장은 브라우저가 한다.
+     * 서버 PDF 렌더러는 CSS 2.1만 이해해서 이 문서의 레이아웃을 그릴 수 없다.
+     */
+    @GetMapping(value = "/{reportId}/download", produces = MediaType.TEXT_HTML_VALUE)
+    @Transactional(readOnly = true)
+    public ResponseEntity<byte[]> download(
+            Authentication authentication,
+            @PathVariable Long groupId,
+            @PathVariable Long reportId
+    ) {
+        Long userId = (Long) authentication.getPrincipal();
+        GroupMember member = accessService.requireActiveMember(groupId, userId);
+
+        AiWeeklyReportRevision revision = findRevisionOrCheckLegacy(groupId, reportId);
+        AiWeeklyReportView view = viewProjector.project(revision);
+        // 문서 언어는 revision에 저장된 언어를 따른다. 요청 시점 화면 언어를 쓰면 EN 분석에
+        // 한국어 껍데기가 씌워진다.
+        var document = documentService.generate(view,
+                member.getGroup().getName(), member.getGroup().getTimezone(), revision.getLanguage());
+
+        String disposition = ContentDisposition.attachment()
+                .filename(document.filename(), StandardCharsets.UTF_8)
+                .build().toString();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .contentType(MediaType.TEXT_HTML)
+                .body(document.content());
     }
 
     @GetMapping(value = "/{reportId}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
@@ -185,16 +220,13 @@ public class AiWeeklyReportController {
     }
 
     private void validatePeriod(LocalDate from, LocalDate toExclusive, String timezoneStr) {
-        if (from == null || from.getDayOfWeek() != DayOfWeek.MONDAY) {
-            throw new ApplicationException("AI_REPORT_WEEK_INVALID", HttpStatus.BAD_REQUEST, "주간 기간은 월요일부터 시작해야 합니다.");
-        }
-        if (toExclusive == null || ChronoUnit.DAYS.between(from, toExclusive) != 7) {
-            throw new ApplicationException("AI_REPORT_WEEK_INVALID", HttpStatus.BAD_REQUEST, "주간 기간은 정확히 7일이어야 합니다.");
+        if (from == null || toExclusive == null || !from.isBefore(toExclusive)) {
+            throw new ApplicationException("AI_REPORT_WEEK_INVALID", HttpStatus.BAD_REQUEST, "기간이 올바르지 않습니다.");
         }
         ZoneId zone = ZoneId.of(timezoneStr != null ? timezoneStr : "Asia/Seoul");
         LocalDate today = LocalDate.now(clock.withZone(zone));
         if (toExclusive.isAfter(today)) {
-            throw new ApplicationException("AI_REPORT_WEEK_INCOMPLETE", HttpStatus.BAD_REQUEST, "완료된 주간만 AI 리포트를 생성할 수 있습니다.");
+            throw new ApplicationException("AI_REPORT_WEEK_INCOMPLETE", HttpStatus.BAD_REQUEST, "완료된 기간만 AI 리포트를 생성할 수 있습니다.");
         }
     }
 
