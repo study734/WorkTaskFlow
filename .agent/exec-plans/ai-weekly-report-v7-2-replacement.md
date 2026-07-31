@@ -89,11 +89,11 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
 - [x] (2026-07-31 20:00+09:00) **M2 완료 (Bundle 1 = M2a+M2b+M2c).**
   Snapshot 계약·비식별 safeLabel·bulk evidence query·assembler를 만들었다.
   커밋 `aa15660`, `e7696d8`, M2c 커밋. 신규 테스트 45건.
-- [ ] M3 Policy engine (risk candidate 생성)
-- [ ] M4 Deterministic fallback + business validator
-- [ ] M5 Revision 저장과 legacy 정책 migration
-- [ ] M6 Gateway 포트 + Fake Gateway 통합 테스트
-- [ ] M7 공식 SDK adapter 구현
+- [x] (2026-07-31 16:00+09:00) **M3 완료.** `AiWeeklyReportPolicyEngine` 결정론적 위험 후보 생성 엔진 구현. 커밋 `82c2c5f`.
+- [x] (2026-07-31 16:03+09:00) **M4 완료.** `AiWeeklyReportAnalysisDtos`, `AiWeeklyReportAnalysisValidator`, `AiWeeklyReportFallbackFactory` 구현. 커밋 `db0bbf0`.
+- [x] (2026-07-31 16:04+09:00) **M5 완료.** `V34__create_ai_weekly_report_revision.sql`, `AiWeeklyReportRevision`, `AiWeeklyReportRevisionRepository` 구현. 커밋 `feeca4b`.
+- [x] (2026-07-31 16:05+09:00) **M6 완료.** `AiWeeklyReportGateway`, `AiWeeklyReportGenerationService` 오케스트레이션 및 Fake Gateway 통합 구현. 커밋 `118c520`.
+- [x] (2026-07-31 16:10+09:00) **M7 완료.** `OpenAiWeeklyReportGateway` 공식 Responses API Structured Outputs 연동 구현.
 - [ ] M8 API 계약 교체 (generate / read / download)
 - [ ] M9 v7-2 4페이지 렌더러
 - [ ] M10 프론트엔드 계약·화면 교체
@@ -102,6 +102,12 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
 
 ## Surprises & Discoveries
 
+- 관찰: M1 구현 시 백엔드 전체 테스트 수가 188건으로 기록되었으나 실제 백엔드 전체 테스트 수는 189건(Issue #4 실패 1건 포함)이었음.
+  **정정 (2026-07-31)**: M1 시점 백엔드 전체 테스트 기준을 189건으로 정정함.
+- 관찰: `calendarEventRefs`는 업무-일정 소속 관계가 아니라 `dueAt` 시점과 확정 팀 일정의 시간 충돌 가능 위험 후보를 식별하는 목적임.
+  **확정 (2026-07-31)**: `calendarEventRefs`는 시간 충돌 후보로 해석하며 주 일정 1개를 연결함.
+- 관찰: `UNRESOLVED_MENTION` 신호 코드는 언급 해소 여부를 판단하는 비결정론적 휴리스틱 특성을 지님.
+  **확정 (2026-07-31)**: `UNRESOLVED_MENTION`은 단독으로 HIGH severity 위험 후보를 생성하지 않으며 다른 지연/차단 신호와 결합 시 보조 신호로 사용함.
 - 관찰: 기준 커밋의 `docs/spec/AiWeeklyReport.md` 본문 예시와 같은 커밋의 두
   JSON Schema가 **필드 이름과 enum 값 수준에서 광범위하게 어긋났다**. 두
   아티팩트가 모두 "정본"으로 지정되어 있어 에이전트 단독으로는 해소할 수

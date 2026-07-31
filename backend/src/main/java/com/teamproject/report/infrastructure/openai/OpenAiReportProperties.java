@@ -20,21 +20,26 @@ public record OpenAiReportProperties(
         String model,
         String baseUrl,
         Duration requestTimeout,
-        Integer maxRetries) {
+        Integer maxRetries,
+        Long maxOutputTokens,
+        String promptVersion) {
 
     public static final String DEFAULT_BASE_URL = "https://api.openai.com/v1";
     public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(45);
     /** SDK 기본값은 2회다. 주간 리포트는 사용자가 기다리는 동기 호출이므로 1회로 제한한다. */
     public static final int DEFAULT_MAX_RETRIES = 1;
     public static final int MAX_ALLOWED_RETRIES = 3;
+    public static final long DEFAULT_MAX_OUTPUT_TOKENS = 3000L;
+    public static final String DEFAULT_PROMPT_VERSION = "v7-2-prompt-001";
 
     public OpenAiReportProperties {
         apiKey = blankToEmpty(apiKey);
         model = blankToEmpty(model);
         baseUrl = isBlank(baseUrl) ? DEFAULT_BASE_URL : baseUrl.trim();
         requestTimeout = requestTimeout == null ? DEFAULT_REQUEST_TIMEOUT : requestTimeout;
-        // Integer로 받아야 "설정하지 않음"과 "명시적으로 0"을 구분할 수 있다.
         maxRetries = maxRetries == null ? DEFAULT_MAX_RETRIES : maxRetries;
+        maxOutputTokens = (maxOutputTokens == null || maxOutputTokens <= 0) ? DEFAULT_MAX_OUTPUT_TOKENS : maxOutputTokens;
+        promptVersion = isBlank(promptVersion) ? DEFAULT_PROMPT_VERSION : promptVersion.trim();
 
         if (requestTimeout.isNegative() || requestTimeout.isZero()) {
             throw new IllegalArgumentException(

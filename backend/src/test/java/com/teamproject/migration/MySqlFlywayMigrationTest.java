@@ -23,7 +23,7 @@ class MySqlFlywayMigrationTest {
                     .withPassword("worktaskflow");
 
     @Test
-    void migratesFreshMySqlSchemaFromV1ThroughV33() throws Exception {
+    void migratesFreshMySqlSchemaFromV1ThroughV34() throws Exception {
         Flyway flyway = Flyway.configure()
                 .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
                 .locations("classpath:db/migration")
@@ -31,16 +31,17 @@ class MySqlFlywayMigrationTest {
 
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("34");
         assertThat(countSchemaObjects(
                 "information_schema.tables",
                 "table_name",
                 List.of(
                         "reports",
+                        "ai_weekly_report_revision",
                         "task_activity_events",
                         "weekly_objectives",
                         "task_weekly_objective_links")))
-                .isEqualTo(4);
+                .isEqualTo(5);
         assertThat(countColumns(
                 "reports",
                 List.of(

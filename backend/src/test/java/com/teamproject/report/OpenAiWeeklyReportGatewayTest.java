@@ -1,0 +1,173 @@
+package com.teamproject.report;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openai.client.OpenAIClient;
+import com.openai.core.ObjectMappers;
+import com.openai.models.responses.Response;
+import com.openai.models.responses.StructuredResponse;
+import com.openai.models.responses.StructuredResponseCreateParams;
+import com.openai.services.blocking.ResponseService;
+import com.teamproject.report.application.AiWeeklyReportFallbackFactory;
+import com.teamproject.report.application.AiWeeklyReportPolicyEngine;
+import com.teamproject.report.application.dto.AiWeeklyReportAnalysisDtos.AiWeeklyReportAnalysisV1;
+import com.teamproject.report.application.dto.AiWeeklyReportDtos.AiWeeklyReportSnapshotV1;
+import com.teamproject.report.infrastructure.openai.OpenAiAnalysisContractMapper;
+import com.teamproject.report.infrastructure.openai.OpenAiReportExceptions.*;
+import com.teamproject.report.infrastructure.openai.OpenAiReportProperties;
+import com.teamproject.report.infrastructure.openai.OpenAiWeeklyReportGateway;
+import com.teamproject.report.infrastructure.openai.contract.AiWeeklyReportAnalysisContract;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class OpenAiWeeklyReportGatewayTest {
+
+    private static final String MODEL = "gpt-4o";
+
+    private final ObjectMapper json = new ObjectMapper();
+    private final OpenAIClient client = mock(OpenAIClient.class);
+    private final ResponseService responses = mock(ResponseService.class);
+    private final OpenAiAnalysisContractMapper mapper = new OpenAiAnalysisContractMapper();
+    private final AiWeeklyReportPolicyEngine policyEngine = new AiWeeklyReportPolicyEngine();
+    private final AiWeeklyReportFallbackFactory fallbackFactory = new AiWeeklyReportFallbackFactory();
+
+    private AiWeeklyReportSnapshotV1 snapshot;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        when(client.responses()).thenReturn(responses);
+
+        InputStream stream = getClass().getResourceAsStream("/ai/ai-weekly-report-snapshot-v1.example.json");
+        AiWeeklyReportSnapshotV1 raw = json.readValue(stream, AiWeeklyReportSnapshotV1.class);
+        snapshot = policyEngine.evaluate(raw);
+    }
+
+    private OpenAiWeeklyReportGateway gateway(boolean enabled, String model) {
+        OpenAiReportProperties props = new OpenAiReportProperties(
+                enabled,
+                "sk-test-key",
+                model,
+                "https://api.openai.com/v1",
+                Duration.ofSeconds(45),
+                1,
+                3000L,
+                "v7-2-prompt-001"
+        );
+        return new OpenAiWeeklyReportGateway(client, props, json, mapper);
+    }
+
+    @Test
+    @DisplayName("정상 요청 시 Responses API에 model, store(false), maxOutputTokens, Structured Output 파라미터를 올바르게 전달한다")
+    void sendsCorrectParametersToResponsesApi() throws Exception {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
+        String validContractJson = json.writeValueAsString(fallback);
+        stubResponse(completed(validContractJson));
+
+        gateway(true, MODEL).analyze(snapshot);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<StructuredResponseCreateParams<AiWeeklyReportAnalysisContract>> captor =
+                ArgumentCaptor.forClass(StructuredResponseCreateParams.class);
+        org.mockito.Mockito.verify(responses).create(captor.capture());
+
+        StructuredResponseCreateParams<AiWeeklyReportAnalysisContract> params = captor.getValue();
+        var raw = params.rawParams();
+
+        assertThat(params.responseType()).isEqualTo(AiWeeklyReportAnalysisContract.class);
+        assertThat(raw.store()).contains(false);
+        assertThat(raw.maxOutputTokens()).contains(3000L);
+        assertThat(raw.instructions().orElseThrow()).contains("당신은 팀 업무 회의를 지원하는 분석가다.");
+    }
+
+    @Test
+    @DisplayName("OpenAI 응답이 비활성화되었거나 모델이 없으면 OpenAiReportUnavailableException을 던진다")
+    void throwsExceptionOnDisabledOrMissingModel() {
+        OpenAiWeeklyReportGateway disabledGateway = gateway(false, MODEL);
+        assertThatThrownBy(() -> disabledGateway.analyze(snapshot))
+                .isInstanceOf(OpenAiReportUnavailableException.class);
+
+        OpenAiWeeklyReportGateway noModelGateway = gateway(true, "");
+        assertThatThrownBy(() -> noModelGateway.analyze(snapshot))
+                .isInstanceOf(OpenAiReportUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("OpenAI 응답에 output_text가 없으면 OpenAiReportInvalidResponseException을 던진다")
+    void throwsExceptionWhenNoOutputText() throws Exception {
+        stubResponse(withoutOutput());
+
+        OpenAiWeeklyReportGateway gw = gateway(true, MODEL);
+        assertThatThrownBy(() -> gw.analyze(snapshot))
+                .isInstanceOf(OpenAiReportInvalidResponseException.class);
+    }
+
+    @Test
+    @DisplayName("Rate limit (429) 예외 발생 시 OpenAiReportRateLimitException으로 변환된다")
+    void handlesRateLimitException() {
+        when(responses.create(any(StructuredResponseCreateParams.class)))
+                .thenThrow(new RuntimeException("429 rate_limit exceeded"));
+
+        OpenAiWeeklyReportGateway gw = gateway(true, MODEL);
+        assertThatThrownBy(() -> gw.analyze(snapshot))
+                .isInstanceOf(OpenAiReportRateLimitException.class);
+    }
+
+    @Test
+    @DisplayName("Timeout 예외 발생 시 OpenAiReportTimeoutException으로 변환된다")
+    void handlesTimeoutException() {
+        when(responses.create(any(StructuredResponseCreateParams.class)))
+                .thenThrow(new RuntimeException("Request timeout"));
+
+        OpenAiWeeklyReportGateway gw = gateway(true, MODEL);
+        assertThatThrownBy(() -> gw.analyze(snapshot))
+                .isInstanceOf(OpenAiReportTimeoutException.class);
+    }
+
+    private void stubResponse(String responseJson) throws IOException {
+        Response sdkResponse = ObjectMappers.jsonMapper().readValue(responseJson, Response.class);
+        StructuredResponse<AiWeeklyReportAnalysisContract> structured =
+                new StructuredResponse<>(AiWeeklyReportAnalysisContract.class, sdkResponse);
+        when(responses.create(any(StructuredResponseCreateParams.class))).thenReturn(structured);
+    }
+
+    private String completed(String outputText) throws IOException {
+        return json.writeValueAsString(Map.of(
+                "id", "resp_test_001",
+                "object", "response",
+                "created_at", 1785222000,
+                "status", "completed",
+                "model", MODEL,
+                "output", List.of(Map.of(
+                        "id", "msg_test",
+                        "type", "message",
+                        "role", "assistant",
+                        "status", "completed",
+                        "content", List.of(Map.of(
+                                "type", "output_text",
+                                "annotations", List.of(),
+                                "text", outputText))))));
+    }
+
+    private String withoutOutput() throws IOException {
+        return json.writeValueAsString(Map.of(
+                "id", "resp_empty",
+                "object", "response",
+                "created_at", 1785222000,
+                "status", "completed",
+                "model", MODEL,
+                "output", List.of()));
+    }
+}
