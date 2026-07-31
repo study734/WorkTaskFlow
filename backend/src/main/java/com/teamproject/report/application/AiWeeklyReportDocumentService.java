@@ -27,6 +27,7 @@ public class AiWeeklyReportDocumentService {
 
     private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("MM-dd");
     private static final DateTimeFormatter DAY_TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+    /** 계약상 issues는 최대 3개다. 이 상한은 계약이 늘어나도 조용히 자르지 않게 두는 안전장치다. */
     private static final int MAX_SIGNALS = 3;
     private static final int MAX_TIMELINE = 3;
     /**
@@ -389,6 +390,16 @@ public class AiWeeklyReportDocumentService {
                     .append(escape(dayTime(event.startAt(), doc.zone))).append("</time><strong>")
                     .append(escape(event.realTitle())).append("</strong><p>")
                     .append(escape(event.safeLabel())).append("</p></div>");
+        }
+        // 업무표와 같은 규칙을 쓴다. 말없이 자르면 남은 일정이 없는 것으로 읽힌다.
+        if (events.size() > MAX_TIMELINE) {
+            html.append("<div class=\"timeline-item\"><time>·</time><strong>")
+                    .append(doc.ko
+                            ? "확정 일정 " + events.size() + "건 중 " + MAX_TIMELINE + "건 표시"
+                            : MAX_TIMELINE + " of " + events.size() + " confirmed events shown")
+                    .append("</strong><p>")
+                    .append(doc.ko ? "전체는 캘린더에서 확인" : "See the calendar for all")
+                    .append("</p></div>");
         }
         return html.append("</div>").toString();
     }

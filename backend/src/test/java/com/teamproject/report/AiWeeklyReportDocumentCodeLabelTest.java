@@ -67,6 +67,21 @@ class AiWeeklyReportDocumentCodeLabelTest {
         assertThat(html).contains("확인할 수 없는 역할");
     }
 
+    /** 업무표는 잘리면 밝히는데 일정표는 말없이 3건만 실었다. 같은 문서에서 규칙이 달랐다. */
+    @Test
+    @DisplayName("다음 기간 일정이 잘리면 몇 건 중 몇 건인지 밝힌다")
+    void disclosesTruncatedTimeline() {
+        List<CalendarConstraintView> events = new java.util.ArrayList<>();
+        for (int i = 1; i <= 8; i++) {
+            events.add(new CalendarConstraintView("EVENT-" + i, "일정 " + i, "MEETING",
+                    "확정 회의", "2026-07-28T01:00:00Z", "2026-07-28T02:00:00Z", List.of()));
+        }
+
+        assertThat(renderWithEvents(events, "KO")).contains("확정 일정 8건 중 3건 표시");
+        assertThat(renderWithEvents(events, "EN")).contains("3 of 8 confirmed events shown");
+        assertThat(renderWithEvents(events.subList(0, 3), "KO")).doesNotContain("중 3건 표시");
+    }
+
     private Set<String> leakedCodes(String html) {
         // 문서 골격의 영문 장식 문구(TOESA · ACTION REVIEW 등)는 밑줄이 없어 걸리지 않는다.
         Matcher matcher = SCREAMING_CASE.matcher(html);
@@ -75,6 +90,18 @@ class AiWeeklyReportDocumentCodeLabelTest {
 
     private String render(List<String> evidenceCodes, List<String> completionCodes, String language) {
         return render(evidenceCodes, completionCodes, language, "CURRENT_ASSIGNEE");
+    }
+
+    private String renderWithEvents(List<CalendarConstraintView> events, String language) {
+        AiWeeklyReportView view = new AiWeeklyReportView(1L, 7L,
+                LocalDate.of(2026, 7, 20), LocalDate.of(2026, 7, 27), 1, "FINALIZED", "OPENAI",
+                LocalDateTime.of(2026, 7, 27, 9, 0), "/download",
+                null, null, List.of(), List.of(),
+                new SnapshotMetricsView(1, 0, null, 0, null),
+                new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
+                new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
+                List.of(), List.of(), events);
+        return service.generate(view, "퇴사 팀", "Asia/Seoul", language).html();
     }
 
     private String render(List<String> evidenceCodes, List<String> completionCodes,
