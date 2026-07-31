@@ -8,6 +8,8 @@ import com.teamproject.report.application.dto.AiWeeklyReportDtos.AiWeeklyReportS
 import com.teamproject.report.application.port.AiWeeklyReportGateway;
 import com.teamproject.report.domain.AiWeeklyReportRevision;
 import com.teamproject.report.domain.AiWeeklyReportRevisionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,8 @@ import java.util.Optional;
  */
 @Service
 public class AiWeeklyReportGenerationService {
+
+    private static final Logger log = LoggerFactory.getLogger(AiWeeklyReportGenerationService.class);
 
     private final AiWeeklyReportPolicyEngine policyEngine;
     private final AiWeeklyReportGateway gateway;
@@ -118,10 +122,18 @@ public class AiWeeklyReportGenerationService {
             analysis = gateway.analyze(snapshot);
             ValidationResult validationResult = validator.validate(snapshot, analysis);
             if (!validationResult.valid()) {
+                // 왜 fallback으로 내려갔는지 남기지 않으면 운영에서 원인을 찾을 방법이 없다.
+                // 오류 문구는 ref와 코드만 담는다. 원문 제목·이름은 들어가지 않는다.
+                log.warn("AI weekly report analysis rejected, using server fallback: groupId={} period={}..{} errors={}",
+                        command.groupId(), command.periodFrom(), command.periodToExclusive(),
+                        validationResult.errors());
                 analysis = fallbackFactory.create(snapshot);
                 mode = "SERVER_FALLBACK";
             }
         } catch (Exception ex) {
+            log.warn("AI weekly report gateway call failed, using server fallback: groupId={} period={}..{} cause={}",
+                    command.groupId(), command.periodFrom(), command.periodToExclusive(),
+                    ex.getClass().getSimpleName());
             analysis = fallbackFactory.create(snapshot);
             mode = "SERVER_FALLBACK";
         }

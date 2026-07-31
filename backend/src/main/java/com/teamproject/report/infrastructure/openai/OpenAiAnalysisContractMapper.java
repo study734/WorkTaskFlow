@@ -141,8 +141,10 @@ public class OpenAiAnalysisContractMapper {
             }
         }
 
+        // schemaVersion은 서버가 소유한 계약 식별자다. 모델은 입력 Snapshot의 값을 그대로
+        // 되돌려주기도 해서(`ai-weekly-report-snapshot.v1`) 그대로 믿으면 매번 검증에 걸린다.
         return new AiWeeklyReportAnalysisV1(
-                contract.schemaVersion != null ? contract.schemaVersion : AiWeeklyReportAnalysisDtos.ANALYSIS_SCHEMA_VERSION,
+                AiWeeklyReportAnalysisDtos.ANALYSIS_SCHEMA_VERSION,
                 status,
                 ej,
                 ach,
