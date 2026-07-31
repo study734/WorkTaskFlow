@@ -11,12 +11,9 @@ import com.teamproject.group.domain.GroupRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.time.*;
-import java.time.temporal.TemporalAdjusters;
 
 @Service
 public class BasicReportAccessService {
-    private static final int FREE_GROUP_WEEKLY_LIMIT = 2;
     private final GroupAuthorization authorization;
     private final GroupReportDownloadRepository downloads;
     private final GroupRepository groups;
@@ -57,31 +54,12 @@ public class BasicReportAccessService {
             throw new ApplicationException("GROUP_LEADER_REQUIRED", HttpStatus.FORBIDDEN,
                     "그룹 전체 리포트는 팀장만 생성할 수 있습니다.");
         }
-
-        Integer remaining = null;
-        if (group.getMembershipPlan() == Group.MembershipPlan.FREE
-                && scope == GroupReportDownload.Scope.GROUP) {
-            ZoneId zone = ZoneId.of(group.getTimezone());
-            LocalDate today = LocalDate.now(zone);
-            LocalDate weekStart = today.with(
-                    TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-            LocalDateTime from = weekStart.atStartOfDay();
-            LocalDateTime to = weekStart.plusDays(7).atStartOfDay();
-            long used = downloads
-                    .countByGroupIdAndScopeAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
-                            groupId, scope, from, to);
-            if (used >= FREE_GROUP_WEEKLY_LIMIT) {
-                throw new ApplicationException("FREE_REPORT_WEEKLY_LIMIT",
-                        HttpStatus.TOO_MANY_REQUESTS,
-                        "무료 그룹 리포트는 주 2회까지 생성할 수 있습니다.");
-            }
-            remaining = Math.toIntExact(FREE_GROUP_WEEKLY_LIMIT - used - (record ? 1 : 0));
-        }
         if (record) {
             downloads.save(new GroupReportDownload(group, member, scope, periodType));
         }
+        // 무료 플랜 리포트는 팀 정책상 횟수 제한이 없다. 과금은 구독 모듈이 담당한다.
         return new ReportAccessResponse(true, group.getMembershipPlan().name(), scope.name(),
-                periodType.name(), remaining);
+                periodType.name(), null);
     }
 
     private GroupReportDownload.Scope scope(String value) {
