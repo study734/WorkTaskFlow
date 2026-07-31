@@ -60,8 +60,15 @@ public class AiWeeklyReportGenerationService {
         this.objectMapper = objectMapper;
     }
 
+    public record GenerationResult(AiWeeklyReportRevision revision, boolean createdNew) {}
+
     @Transactional
     public AiWeeklyReportRevision generate(AiWeeklyReportSnapshotV1 rawSnapshot, GenerateCommand command) {
+        return generateResult(rawSnapshot, command).revision();
+    }
+
+    @Transactional
+    public GenerationResult generateResult(AiWeeklyReportSnapshotV1 rawSnapshot, GenerateCommand command) {
         if (rawSnapshot == null || command == null) {
             throw new IllegalArgumentException("Snapshot and command must not be null");
         }
@@ -82,15 +89,14 @@ public class AiWeeklyReportGenerationService {
         // 3. Deduplication check if regenerate=false
         if (!command.regenerate()) {
             Optional<AiWeeklyReportRevision> existing = revisionRepository
-                    .findByGroupIdAndPeriodFromAndPeriodToExclusiveAndLanguageAndSourceFingerprint(
+                    .findTopByGroupIdAndPeriodFromAndPeriodToExclusiveAndLanguageOrderByRevisionDesc(
                             command.groupId(),
                             command.periodFrom(),
                             command.periodToExclusive(),
-                            command.language(),
-                            fingerprint
+                            command.language()
                     );
             if (existing.isPresent()) {
-                return existing.get();
+                return new GenerationResult(existing.get(), false);
             }
         }
 
@@ -148,7 +154,7 @@ public class AiWeeklyReportGenerationService {
                 now
         );
 
-        return revisionRepository.save(newRevision);
+        return new GenerationResult(revisionRepository.save(newRevision), true);
     }
 
     public String computeFingerprint(String snapshotJson, String promptVersion, String model) {

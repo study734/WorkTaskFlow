@@ -36,7 +36,7 @@ import com.teamproject.report.application.GeneratedPdf;
 import com.teamproject.report.application.WeeklyReportPdfService;
 
 @RestController
-@RequestMapping("/api/v1/groups/{groupId}/reports/ai-weekly")
+@RequestMapping("/api/v1/groups/{groupId}/reports/ai-weekly-legacy")
 public class WeeklyReportController {
     private final WeeklyReportModule reports;
     private final WeeklyReportPdfService pdfs;

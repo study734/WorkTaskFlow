@@ -7,6 +7,9 @@ import java.util.List;
 public interface ReportPdfRenderer {
     byte[] renderBasic(BasicReportDocument document);
     byte[] renderWeeklyAi(WeeklyReportView report);
+    default byte[] renderWeeklyAiV72(com.teamproject.report.presentation.dto.AiWeeklyReportApiDtos.AiWeeklyReportView view) {
+        return new byte[0];
+    }
 
     record BasicReportDocument(
             String title,
