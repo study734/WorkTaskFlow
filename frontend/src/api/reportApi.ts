@@ -40,11 +40,13 @@ export const reportApi = {
       `toesa-report-${language.toLowerCase()}.html`);
     saveBlob(result.blob, result.filename);
   },
+  // OpenAI 왕복이 기본 30초를 넘긴다(업무 15건 기준 31.8초 관측). 넉넉히 잡지 않으면
+  // 서버가 성공해 저장까지 마친 뒤에 프런트만 실패로 끊긴다.
   generateAiWeekly: (groupId: number, body: GenerateReportRequest) =>
     request<GenerateReportResponse>(`/groups/${groupId}/reports/ai-weekly`, {
       method: 'POST',
       body: JSON.stringify(body),
-    }, true),
+    }, true, 120_000),
   // 기본 리포트와 같다. 서버가 완성된 HTML을 주고 PDF 저장은 브라우저 인쇄로 한다.
   downloadAiWeeklyDocument: async (groupId: number, reportId: number, from: string, revision: number) => {
     const result = await requestBlob(`/groups/${groupId}/reports/ai-weekly/${reportId}/download`,

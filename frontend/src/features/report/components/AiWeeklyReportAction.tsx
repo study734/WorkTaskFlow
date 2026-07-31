@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { errorMessage } from '../../../api/client';
+import { type ApiError, errorMessage } from '../../../api/client';
 import { GroupResponse } from '../../../api/groupApi';
 import { GenerateReportResponse, reportApi } from '../../../api/reportApi';
 import { Modal } from '../../../app/AppNavigation';
@@ -39,6 +39,22 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
   const today = zonedTodayString(group?.timezone);
   const isCompletedPeriod = toExclusive <= today;
 
+  /**
+   * 생성 요청의 타임아웃은 실패가 아니다. 서버가 이미 만들어 저장했을 수 있다(실제로
+   * 31.8초 걸린 호출이 프런트 30초 벽에 걸려 성공한 리포트를 실패로 표시했다).
+   * 유료 호출이라 "다시 시도"로 밀면 사용자가 한 번 더 결제한다.
+   */
+  function generationErrorMessage(caught: unknown) {
+    const code = (caught as ApiError)?.code;
+    if (code === 'REQUEST_TIMEOUT' || code === 'REQUEST_CANCELLED') {
+      return t(
+        '응답이 늦어 화면 연결이 끊겼습니다. 리포트는 이미 생성됐을 수 있으니 다시 생성하지 말고 잠시 후 AI 리포트를 다시 눌러 확인해 주세요.',
+        'The connection dropped while waiting. The report may already exist — do not regenerate; press AI report again shortly to check.',
+      );
+    }
+    return errorMessage(caught);
+  }
+
   async function handleGenerate(langCode: 'KO' | 'EN') {
     if (!isCompletedPeriod) {
       setFailed(true);
@@ -70,7 +86,7 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
       await download(res);
     } catch (caught) {
       setFailed(true);
-      setMessage(errorMessage(caught));
+      setMessage(generationErrorMessage(caught));
     } finally {
       setPending(false);
     }
@@ -106,7 +122,7 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
       await download(created);
     } catch (caught) {
       setFailed(true);
-      setMessage(errorMessage(caught));
+      setMessage(generationErrorMessage(caught));
     } finally {
       setPending(false);
     }

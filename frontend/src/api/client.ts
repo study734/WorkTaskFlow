@@ -17,8 +17,10 @@ if (localStorage.getItem('accessToken')) {
   localStorage.setItem(SESSION_HINT, 'true');
 }
 
-export async function request<T>(path: string, init: RequestInit = {}, authenticated = false): Promise<T> {
-  return performRequest<T>(path, init, authenticated, true);
+/** timeoutMs를 넘기면 기본 30초 대신 그 값을 쓴다. LLM 호출처럼 오래 걸리는 경로가 직접 지정한다. */
+export async function request<T>(path: string, init: RequestInit = {}, authenticated = false,
+    timeoutMs?: number): Promise<T> {
+  return performRequest<T>(path, init, authenticated, true, timeoutMs);
 }
 
 export async function requestBlob(path: string, filenameFallback: string, init: RequestInit = {}) {
@@ -49,7 +51,8 @@ export function saveBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function performRequest<T>(path: string, init: RequestInit, authenticated: boolean, allowRefresh: boolean): Promise<T> {
+async function performRequest<T>(path: string, init: RequestInit, authenticated: boolean, allowRefresh: boolean,
+    timeoutMs?: number): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (authenticated) {
@@ -58,7 +61,7 @@ async function performRequest<T>(path: string, init: RequestInit, authenticated:
   }
   let response: Response;
   try {
-    const timeout = init.body instanceof FormData ? DOWNLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+    const timeout = timeoutMs ?? (init.body instanceof FormData ? DOWNLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     response = await fetchWithTimeout(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' }, timeout);
   } catch (error) {
     const apiError = error as ApiError;
@@ -74,7 +77,7 @@ async function performRequest<T>(path: string, init: RequestInit, authenticated:
   if (response.status === 401 && authenticated && allowRefresh) {
     try {
       await refreshAccessToken();
-      return performRequest<T>(path, init, true, false);
+      return performRequest<T>(path, init, true, false, timeoutMs);
     } catch {
       accessToken.clear();
     }
