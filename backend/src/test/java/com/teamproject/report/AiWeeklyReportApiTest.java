@@ -251,6 +251,35 @@ class AiWeeklyReportApiTest {
     }
 
     @Test
+    @DisplayName("그룹 timezone 기준 toExclusive가 미래인 미완료 주간 생성 시 400 Bad Request (AI_REPORT_WEEK_INCOMPLETE)를 반환하고 Gateway 0회 호출되며 revision은 저장되지 않는다")
+    void uncompletedWeekGenerateReturns400AndZeroGatewayCall() throws Exception {
+        int preCallCount = gatewayCallCount.get();
+        long preRevCount = revisionRepository.count();
+
+        LocalDate futureMonday = LocalDate.now().plusWeeks(2).with(java.time.DayOfWeek.MONDAY);
+        LocalDate futureToExclusive = futureMonday.plusDays(7);
+
+        String body = String.format("""
+                {
+                  "from": "%s",
+                  "toExclusive": "%s",
+                  "language": "KO",
+                  "regenerate": false
+                }
+                """, futureMonday, futureToExclusive);
+
+        mvc.perform(post("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + leaderToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("AI_REPORT_WEEK_INCOMPLETE"));
+
+        assertThat(gatewayCallCount.get()).isEqualTo(preCallCount);
+        assertThat(revisionRepository.count()).isEqualTo(preRevCount);
+    }
+
+    @Test
     @DisplayName("팀원이 리포트를 조회할 수 있으며 Gateway 호출은 0회이다")
     void memberCanGetReportByIdWithoutGatewayCall() throws Exception {
         AiWeeklyReportRevision rev = revisionRepository.save(new AiWeeklyReportRevision(
