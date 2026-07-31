@@ -115,10 +115,13 @@ public class AiWeeklyReportSnapshotAssembler {
                         new SnapshotPeriod(from.toString(), toExclusive.toString(),
                                 zone.getId()),
                         clock.instant().toString(), language, promptVersion),
-                metrics(tasks, toExclusive, zone),
-                comparison(tasks, previous, from, toExclusive),
-                workflow(tasks),
-                memberViews(activeMembers, memberRefs, tasks, constraints, toExclusive, zone),
+                // 수치는 기간 전체(current)로 낸다. MAX_TASKS는 OpenAI에 보낼 배열 크기를 막는
+                // 장치이지 집계 범위가 아니다. 잘린 목록으로 재면 101건인 기간이 100건으로
+                // 보고되고, 직전 기간은 잘리지 않아 증감이 서로 다른 모수로 계산된다.
+                metrics(current, toExclusive, zone),
+                comparison(current, previous, from, toExclusive),
+                workflow(current),
+                memberViews(activeMembers, memberRefs, current, constraints, toExclusive, zone),
                 taskViews(tasks, taskRefs, memberRefs, eventRefs, constraints, collaboration,
                         events, language, toExclusive, zone),
                 calendarViews(constraints, eventRefs, tasks, taskRefs, language),

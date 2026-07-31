@@ -306,6 +306,33 @@ class AiWeeklyReportSnapshotAssemblerTest {
                         assertThat(exception.code()).isEqualTo("AI_REPORT_WEEK_INVALID"));
     }
 
+    /**
+     * MAX_TASKS는 OpenAI에 보낼 배열 크기를 막는 장치이지 집계 범위가 아니다. 잘린 목록으로
+     * 수치를 내면 101건인 기간이 100건으로 보고되고, 직전 기간은 잘리지 않으므로 증감이
+     * 서로 다른 모수로 계산된다. 100건이 넘는 팀에서만 드러난다.
+     */
+    @Test
+    @DisplayName("업무가 배열 상한을 넘어도 수치는 기간 전체로 집계한다")
+    void countsTheWholePeriodEvenWhenTheTaskArrayIsCapped() {
+        Fixture fixture = fixture();
+        int totalTasks = 105;
+        for (int i = 0; i < totalTasks; i++) {
+            task(fixture, "업무 " + i, Task.Status.COMPLETED, fixture.leader,
+                    FROM.plusDays(3).atTime(18, 0), FROM.plusDays(2).atTime(9, 0),
+                    0, 0, FROM.plusDays(1));
+        }
+
+        AiWeeklyReportSnapshotV1 snapshot = assemble(fixture);
+
+        // 배열은 계약대로 잘린다. 수치는 잘리지 않는다.
+        assertThat(snapshot.tasks()).hasSize(100);
+        assertThat(snapshot.metrics().periodTaskCount()).isEqualTo(totalTasks);
+        assertThat(snapshot.workflow().completed()).isEqualTo(totalTasks);
+        assertThat(snapshot.members())
+                .filteredOn(member -> member.assignedCount() > 0)
+                .allSatisfy(member -> assertThat(member.assignedCount()).isEqualTo(totalTasks));
+    }
+
     // ---------- fixture ----------
 
     private AiWeeklyReportSnapshotV1 assemble(Fixture fixture) {
