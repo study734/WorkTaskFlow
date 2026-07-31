@@ -86,7 +86,9 @@ v7-2가 충돌하면 v7-2가 정본이고, 완료 시점에 두 계약이 동시
 - [x] (2026-07-31 18:30+09:00) **M1 완료.** OpenAI SDK 클라이언트 설정을
   `infrastructure/openai`로 격리하고 실행 정책을 테스트로 고정했다.
   버전 승격은 제외했다(R16).
-- [ ] M2 Snapshot assembler와 bulk evidence query
+- [x] (2026-07-31 20:00+09:00) **M2 완료 (Bundle 1 = M2a+M2b+M2c).**
+  Snapshot 계약·비식별 safeLabel·bulk evidence query·assembler를 만들었다.
+  커밋 `aa15660`, `e7696d8`, M2c 커밋. 신규 테스트 45건.
 - [ ] M3 Policy engine (risk candidate 생성)
 - [ ] M4 Deterministic fallback + business validator
 - [ ] M5 Revision 저장과 legacy 정책 migration
@@ -1120,6 +1122,50 @@ Central에 배포되면 이 게이트를 통과시킨 뒤 별도 작업으로 �
 
 수용: 위 5개 단언이 모두 통과한다.
 
+**결과 (2026-07-31 완료, Bundle 1)**
+
+M2a `feat(report): add v7-2 snapshot contract and safe labels` (`aa15660`)
+
+- `application/dto/AiWeeklyReportDtos`: Schema와 1:1인 record 트리 + enum 10종
+- `application/AiWeeklyReportSafeLabelFactory`: D2 비식별 라벨.
+  **taskLabel/eventLabel이 제목을 인자로 받지 않는다.** 원문 유입을 시그니처
+  수준에서 막는 것이라 문자열 검사보다 강한 보장이다.
+- `AiWeeklyReportSnapshotContractTest` 7건 + `AiWeeklyReportSafeLabelFactoryTest`
+  22건 = 29/29
+
+M2b `feat(report): add bulk evidence queries for weekly snapshot` (`e7696d8`)
+
+- `application/AiWeeklyReportEvidenceQuery`(port) +
+  `infrastructure/TaskEvidenceQueryRepository`(impl)
+- group by JPQL 3개(댓글 / 미해결 멘션 / 자료)로 업무 수와 무관하게 고정 쿼리
+- 미해결 멘션은 도메인에 resolved 플래그가 없어 관측 사실로 판정한다. 멘션
+  대상자가 그 멘션 이후 해당 업무에 댓글을 달지 않았으면 미해결로 본다.
+- `AiWeeklyReportEvidenceQueryTest` 6/6. 업무 3건과 20건 모두 쿼리 3회,
+  빈 목록은 0회
+
+M2c `feat(report): assemble v7-2 weekly report snapshot`
+
+- `application/AiWeeklyReportSnapshotAssembler`
+- 기존 `TaskMetricsSnapshotSource`는 건드리지 않는다. 같은
+  `TaskReportDataQuery`를 쓰되 별도 경로로 조립한다.
+- `AiWeeklyReportSnapshotAssemblerTest` 10/10. 조립 결과를 M0 Schema로 검증하고
+  직렬화 문자열에 제목·댓글 원문·실명이 없음을 단언한다.
+
+**편차 — M3로 이월**
+
+`tasks[].signalCodes`, `tasks[].allowed*Codes`, `riskCandidates`는 빈 배열로
+둔다. 대응표 4가 이 셋을 policy engine 산출로 지정했고 이번 Bundle은 M3 위험
+정책 구현이 금지되었기 때문이다. Schema는 빈 배열을 허용하므로 계약은 유효하다.
+M3에서 채운다.
+
+**보완이 필요한 파생 규칙 (M3 이후 재검토)**
+
+- 업무와 캘린더 일정 사이에 도메인 관계가 없다. `relatedTaskRefs`와
+  `calendarEventRefs`는 "업무 마감이 일정 구간 안에 들어오면 연결"이라는 시간
+  겹침 규칙으로 파생했다. 명시적 연결 테이블이 생기면 교체한다.
+- `members[].upcomingCalendarCount`는 일정 참석자 테이블이 없어 "그 팀원이
+  만든 일정 중 기간 종료 이후 시작"으로 계산한다.
+
 ### M3 — Policy engine (risk candidate 생성)
 
 목표: 서버가 위험 후보를 확정한다. AI가 위험을 자유 생성하지 못하게 하는 핵심.
@@ -1824,6 +1870,13 @@ spec §10.6의 같은 필드:
 
 
 ## Revision note
+
+- 2026-07-31 (20:00+09:00) — Bundle 1(M2a+M2b+M2c) 완료 기록. Snapshot Java
+  계약, 비식별 safeLabel factory, bulk evidence query, assembler를 추가하고
+  M2 milestone에 결과·편차를 적었다. `signalCodes`/`allowed*Codes`/
+  `riskCandidates`는 policy engine 범위라 빈 배열로 두고 M3로 이월했다.
+  업무-일정 연결과 팀원 upcoming 일정은 도메인 관계가 없어 시간 겹침·소유자
+  기준으로 파생했고, 재검토 대상으로 남겼다.
 
 - 2026-07-31 (18:30+09:00) — M1 완료 기록. `OpenAiReportProperties`와
   `OpenAIConfiguration`을 `infrastructure/openai`에 추가하고 기존
