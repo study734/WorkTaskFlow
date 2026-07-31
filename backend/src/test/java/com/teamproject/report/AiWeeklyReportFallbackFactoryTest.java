@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -174,17 +175,53 @@ class AiWeeklyReportFallbackFactoryTest {
         assertThat(validateSchema(ANALYSIS_SCHEMA, json.valueToTree(fallback))).isEmpty();
     }
 
+    /**
+     * 계약은 성과 하나에 근거 업무 5건까지 허용한다. fallback이 findFirst로 1건만 실어
+     * 완료 5건인 기간도 1건만 완료된 것처럼 보였다. 계약을 덜 쓰고 있던 것이지 계약 제약이
+     * 아니었다. 위험 후보가 없는 기간에는 성과가 문서의 주된 내용이라 차이가 크다.
+     */
     @Test
-    @DisplayName("완료 업무가 있으면 achievement를 실제 완료 업무 ref로 남긴다")
-    void keepsAchievementWhenACompletedTaskExists() {
+    @DisplayName("완료 업무가 여럿이면 계약 상한까지 근거로 남긴다")
+    void keepsEveryCompletedTaskUpToTheContractLimit() {
         AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
 
-        SnapshotTask completed = snapshot.tasks().stream()
+        List<String> completedRefs = snapshot.tasks().stream()
                 .filter(task -> task.status() == TaskStatus.COMPLETED)
-                .findFirst().orElseThrow();
+                .map(SnapshotTask::taskRef)
+                .toList();
+        assertThat(completedRefs).isNotEmpty();
+
         assertThat(fallback.achievement().status()).isEqualTo(AchievementStatus.AVAILABLE);
         assertThat(fallback.achievement().evidenceTaskRefs())
-                .containsExactly(completed.taskRef());
+                .hasSize(Math.min(completedRefs.size(), 5))
+                .isSubsetOf(completedRefs);
+        assertThat(fallback.achievement().summary())
+                .contains(String.valueOf(completedRefs.size()));
+    }
+
+    /** 상한을 넘으면 몇 건 중 몇 건인지 밝힌다. 안 밝히면 5건만 완료된 것처럼 읽힌다. */
+    @Test
+    @DisplayName("완료 업무가 상한을 넘으면 전체 건수를 문장에 밝힌다")
+    void statesTheTotalWhenCompletedTasksExceedTheLimit() {
+        List<SnapshotTask> manyCompleted = new ArrayList<>();
+        for (int i = 1; i <= 7; i++) {
+            manyCompleted.add(completedTask("TASK-" + i));
+        }
+        AiWeeklyReportSnapshotV1 wide = new AiWeeklyReportSnapshotV1(
+                snapshot.schemaVersion(), snapshot.reportContext(), snapshot.metrics(),
+                snapshot.comparison(), new SnapshotWorkflow(0, 0, 0, 0, 0, 7),
+                snapshot.members(), manyCompleted, snapshot.calendarConstraints(), List.of());
+
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(wide);
+
+        assertThat(fallback.achievement().evidenceTaskRefs()).hasSize(5);
+        assertThat(fallback.achievement().summary()).contains("7").contains("5");
+    }
+
+    private SnapshotTask completedTask(String ref) {
+        return new SnapshotTask(ref, "완료된 업무", TaskStatus.COMPLETED, "NORMAL", null,
+                "2026-07-20T00:00:00Z", null, "2026-07-21T00:00:00Z", null,
+                null, null, null, List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     /**
@@ -202,7 +239,8 @@ class AiWeeklyReportFallbackFactoryTest {
         assertThat(headline).startsWith("Of ").contains("in progress").contains("on hold");
         assertThat(interpretation).contains("Completion rate is");
         assertThat(headline + interpretation).doesNotContain("업무").doesNotContain("완료율");
-        assertThat(fallback.achievement().headline()).isEqualTo("Task completed in this period");
+        assertThat(fallback.achievement().headline()).isEqualTo("Tasks completed in this period");
+        assertThat(fallback.achievement().summary()).contains("completed in this period");
         assertThat(headline.length()).isLessThanOrEqualTo(160);
         assertThat(interpretation.length()).isLessThanOrEqualTo(360);
     }

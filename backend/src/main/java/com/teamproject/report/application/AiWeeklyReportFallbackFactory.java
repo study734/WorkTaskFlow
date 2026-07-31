@@ -60,23 +60,23 @@ public class AiWeeklyReportFallbackFactory {
                 List.of()
         );
 
-        // Achievement (Max 1 completed task)
+        // 계약은 성과 하나에 근거 업무 5건까지 허용한다(evidenceTaskRefs maxItems 5).
+        // 완료 5건인 기간에 1건만 실으면 실제보다 빈약해 보인다. 위험 후보가 없는 기간에는
+        // 성과가 문서의 주된 내용이라 더 그렇다.
         Achievement achievement;
-        SnapshotTask completedTask = null;
-        if (snapshot.tasks() != null) {
-            completedTask = snapshot.tasks().stream()
-                    .filter(t -> t.status() == TaskStatus.COMPLETED)
-                    .findFirst()
-                    .orElse(null);
-        }
+        List<String> completedRefs = snapshot.tasks() == null ? List.of()
+                : snapshot.tasks().stream()
+                        .filter(t -> t.status() == TaskStatus.COMPLETED)
+                        .map(SnapshotTask::taskRef)
+                        .limit(ACHIEVEMENT_EVIDENCE_MAX)
+                        .toList();
 
-        if (completedTask != null) {
+        if (!completedRefs.isEmpty()) {
             achievement = new Achievement(
                     AchievementStatus.AVAILABLE,
-                    ko ? "기간 내 업무 완료" : "Task completed in this period",
-                    ko ? "해당 기간 중 완료 처리가 확인된 업무입니다."
-                            : "A task confirmed as completed within this period.",
-                    List.of(completedTask.taskRef())
+                    ko ? "기간 내 업무 완료" : "Tasks completed in this period",
+                    achievementSummary(completedRefs.size(), completedCount(snapshot), ko),
+                    completedRefs
             );
         } else {
             achievement = Achievement.none();
@@ -165,6 +165,28 @@ public class AiWeeklyReportFallbackFactory {
             case "RESOURCE_MISSING" -> ko ? "관련 자료가 없는 업무" : "Task with no linked resource";
             default -> ko ? "서버 기본 검토 항목" : "Server baseline review item";
         };
+    }
+
+    /** 계약의 achievement.evidenceTaskRefs maxItems와 같은 값이다. */
+    private static final int ACHIEVEMENT_EVIDENCE_MAX = 5;
+
+    private int completedCount(AiWeeklyReportSnapshotV1 snapshot) {
+        if (snapshot.workflow() != null) return snapshot.workflow().completed();
+        return snapshot.tasks() == null ? 0
+                : (int) snapshot.tasks().stream().filter(t -> t.status() == TaskStatus.COMPLETED).count();
+    }
+
+    /**
+     * 근거로 실은 건수와 실제 완료 건수가 다르면 그 사실을 밝힌다. 몇 건 중 몇 건인지
+     * 적지 않으면 5건만 완료된 것처럼 읽힌다. 숫자는 Snapshot에 이미 있는 값만 쓴다.
+     */
+    private String achievementSummary(int shown, int total, boolean ko) {
+        if (total > shown) {
+            return ko ? "해당 기간에 완료 처리가 확인된 업무 " + total + "건 중 " + shown + "건입니다."
+                    : "Showing " + shown + " of " + total + " tasks confirmed as completed in this period.";
+        }
+        return ko ? "해당 기간 중 완료 처리가 확인된 업무 " + total + "건입니다."
+                : total + " task(s) confirmed as completed within this period.";
     }
 
     private static final int HEADLINE_MAX = 160;
