@@ -13,6 +13,7 @@ import com.teamproject.report.presentation.dto.AiWeeklyReportApiDtos.*;
 import com.teamproject.task.domain.Task;
 import com.teamproject.task.domain.TaskRepository;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
  * Snapshot/Analysis ref와 실제 DB 엔티티를 재결합하여 v7-2 API/PDF 화면 projection 뷰를 생성한다 (M8/M9).
  */
 @Component
+@Transactional(readOnly = true)
 public class AiWeeklyReportViewProjector {
 
     private final ObjectMapper objectMapper;

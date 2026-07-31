@@ -16,6 +16,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> 
     Optional<GroupMember> findByGroupIdAndUserIdAndStatus(Long groupId, Long userId, GroupMember.Status status);
     Optional<GroupMember> findByGroupIdAndUserId(Long groupId, Long userId);
     Optional<GroupMember> findByIdAndGroupIdAndStatus(Long id, Long groupId, GroupMember.Status status);
+    @EntityGraph(attributePaths = "user")
     List<GroupMember> findAllByGroupIdAndStatusOrderByRoleAscJoinedAtAsc(Long groupId, GroupMember.Status status);
     long countByGroupIdAndStatus(Long groupId, GroupMember.Status status);
     @Query("select gm.group.id as groupId, count(gm) as memberCount from GroupMember gm "

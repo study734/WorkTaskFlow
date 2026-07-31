@@ -22,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
@@ -121,6 +122,7 @@ public class AiWeeklyReportController {
     }
 
     @GetMapping("/{reportId}")
+    @Transactional(readOnly = true)
     public ResponseEntity<AiWeeklyReportView> getById(
             Authentication authentication,
             @PathVariable Long groupId,
@@ -136,6 +138,7 @@ public class AiWeeklyReportController {
     }
 
     @GetMapping(value = "/{reportId}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
+    @Transactional(readOnly = true)
     public ResponseEntity<byte[]> downloadPdf(
             Authentication authentication,
             @PathVariable Long groupId,
