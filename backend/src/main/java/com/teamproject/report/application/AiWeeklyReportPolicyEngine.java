@@ -15,6 +15,17 @@ import java.util.stream.Collectors;
 @Component
 public class AiWeeklyReportPolicyEngine {
 
+    /**
+     * 검사하는 위험 코드 전체. 우선순위 맵의 키와 같은 목록이며, 문서가 "무엇을 검사했는지"를
+     * 밝히는 데 쓴다. 후보가 하나도 없을 때 "없습니다" 한 줄만 남으면 아무것도 안 한 것으로
+     * 읽히기 때문이다.
+     */
+    public static final List<String> RISK_CODES = List.of(
+            "APPROVED_UNASSIGNED_OVERDUE", "APPROVED_UNASSIGNED", "OVERDUE_ACTIVE",
+            "WORKLOAD_CONCENTRATION", "COMPLETION_RATE_DROP", "SCHEDULE_CONFLICT",
+            "APPROVAL_PENDING", "CHECKLIST_NOT_STARTED", "BACKLOG_GROWTH",
+            "UNRESOLVED_MENTION", "ON_HOLD_LONG", "RESOURCE_MISSING");
+
     private static final Map<String, Integer> RISK_CODE_PRECEDENCE = Map.ofEntries(
             Map.entry("APPROVED_UNASSIGNED_OVERDUE", 1),
             Map.entry("APPROVED_UNASSIGNED", 2),

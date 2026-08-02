@@ -24,6 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class AiWeeklyReportFallbackFactoryTest {
 
+    private static final String SENTENCE_BREAK = "(?<=[.]) +";
+    private static final String POLITE_ENDING = ".*(니다|입니까|십시오)[.]";
+
     private static final String ANALYSIS_SCHEMA = "/ai/ai-weekly-report-analysis-v1.schema.json";
     private static final String SNAPSHOT_EXAMPLE = "/ai/ai-weekly-report-snapshot-v1.example.json";
 
@@ -282,6 +285,40 @@ class AiWeeklyReportFallbackFactoryTest {
             return compiled.validate(document);
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);
+        }
+    }
+
+    /**
+     * 한 문서에 서버 문장과 AI 문장이 함께 실린다. 실제 리포트를 세어 보니 AI가 평서체 17문장,
+     * 서버가 존댓말 12문장이었고 그 이음매가 딱딱하게 읽혔다. AI 쪽은 프롬프트로 맞췄고,
+     * 서버가 쓰는 fallback 문장은 여기서 고정한다. fallback도 그대로 사용자에게 나간다.
+     */
+    @Test
+    @DisplayName("fallback이 쓰는 한국어 문장은 모두 존댓말이다")
+    void writesEveryKoreanSentenceInThePoliteRegister() {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
+
+        List<String> sentences = new ArrayList<>();
+        sentences.add(fallback.executiveJudgment().headline());
+        sentences.add(fallback.executiveJudgment().interpretation());
+        sentences.add(fallback.achievement().headline());
+        sentences.add(fallback.achievement().summary());
+        fallback.issues().forEach(issue -> {
+            sentences.add(issue.impact());
+            sentences.add(issue.integratedJudgment());
+            sentences.add(issue.decision().question());
+            sentences.add(issue.decision().recommendation());
+        });
+
+        for (String text : sentences) {
+            if (text == null || text.isBlank()) continue;
+            for (String sentence : text.split(SENTENCE_BREAK)) {
+                String trimmed = sentence.trim();
+                if (!trimmed.endsWith(".")) continue;
+                assertThat(trimmed)
+                        .as("존댓말이어야 한다: %s", trimmed)
+                        .matches(POLITE_ENDING);
+            }
         }
     }
 }

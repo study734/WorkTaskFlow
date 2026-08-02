@@ -100,7 +100,7 @@ class AiWeeklyReportDocumentCodeLabelTest {
                 new SnapshotMetricsView(1, 0, null, 0, null),
                 new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
                 new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
-                List.of(), List.of(), events);
+                List.of(), List.of(), events, List.of());
         return service.generate(view, "퇴사 팀", "Asia/Seoul", language).html();
     }
 
@@ -120,7 +120,7 @@ class AiWeeklyReportDocumentCodeLabelTest {
                 new SnapshotMetricsView(1, 0, null, 0, null),
                 new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
                 new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
-                List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of());
 
         return service.generate(view, "퇴사 팀", "Asia/Seoul", language).html();
     }
@@ -160,7 +160,7 @@ class AiWeeklyReportDocumentCodeLabelTest {
                 new SnapshotMetricsView(1, 0, null, 0, null),
                 new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
                 new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
-                List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of());
         return service.generate(view, "퇴사 팀", "Asia/Seoul", "KO");
     }
 
@@ -193,7 +193,45 @@ class AiWeeklyReportDocumentCodeLabelTest {
                 new SnapshotMetricsView(periodTaskCount, 10, null, 0, null),
                 new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
                 new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
-                tasks, List.of(), List.of());
+                tasks, List.of(), List.of(), List.of());
+        return service.generate(view, "퇴사 팀", "Asia/Seoul", language).html();
+    }
+
+    /**
+     * 위험 후보가 없으면 3페이지가 "없습니다" 한 줄이었다. A4 4장 중 한 장이 거의 백지가 되고,
+     * 유료 사용자에게는 AI가 아무 일도 안 한 것으로 읽힌다. policy engine은 실제로 항목
+     * 전체를 검사하므로 무엇을 봤는지 그대로 보여 준다.
+     */
+    @Test
+    @DisplayName("위험이 없으면 무엇을 검사했는지 항목별로 보여 준다")
+    void showsWhatWasCheckedWhenNothingNeedsAction() {
+        List<RiskCheckView> checks = List.of(
+                new RiskCheckView("APPROVED_UNASSIGNED", "담당자 미지정", 0),
+                new RiskCheckView("OVERDUE_ACTIVE", "마감 초과", 0),
+                new RiskCheckView("APPROVAL_PENDING", "승인 대기", 0));
+
+        String html = renderWithChecks(checks, "KO");
+        assertThat(html)
+                .contains("확인한 위험 항목 3개")
+                .contains("담당자 미지정")
+                .contains("마감 초과")
+                .contains("승인 대기")
+                .doesNotContain("조치가 필요한 위험 업무가 없습니다");
+
+        assertThat(renderWithChecks(checks, "EN")).contains("Checked 3 risk signals");
+        // 검사 목록이 없는 옛 revision은 예전 문구로 되돌아간다.
+        assertThat(renderWithChecks(List.of(), "KO")).contains("조치가 필요한 위험 업무가 없습니다");
+    }
+
+    private String renderWithChecks(List<RiskCheckView> checks, String language) {
+        AiWeeklyReportView view = new AiWeeklyReportView(1L, 7L,
+                LocalDate.of(2026, 7, 20), LocalDate.of(2026, 7, 27), 1, "FINALIZED", "OPENAI",
+                LocalDateTime.of(2026, 7, 27, 9, 0), "/download",
+                null, null, List.of(), List.of(),
+                new SnapshotMetricsView(4, 100, 100, 0, null),
+                new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
+                new SnapshotWorkflowView(0, 0, 0, 0, 0, 4),
+                List.of(), List.of(), List.of(), checks);
         return service.generate(view, "퇴사 팀", "Asia/Seoul", language).html();
     }
 }

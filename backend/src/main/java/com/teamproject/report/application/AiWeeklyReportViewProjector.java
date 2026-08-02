@@ -219,8 +219,46 @@ public class AiWeeklyReportViewProjector {
                 workflowView,
                 taskViews,
                 memberViews,
-                calendarViews
+                calendarViews,
+                riskChecks(snapshot, isKorean(snapshot))
         );
+    }
+
+    /**
+     * 서버가 검사한 위험 항목 전체와 각 항목의 후보 수. 후보가 0인 항목도 남긴다.
+     *
+     * <p>후보가 하나도 없으면 문서에 "없습니다" 한 줄만 남아 아무 일도 안 한 것으로 읽힌다.
+     * policy engine은 실제로 12개 항목을 다 검사한다. 그 사실을 문서가 보여 줄 수 있게
+     * 결과를 함께 넘긴다.
+     */
+    private List<RiskCheckView> riskChecks(AiWeeklyReportSnapshotV1 snapshot, boolean ko) {
+        List<RiskCandidate> candidates = snapshot.riskCandidates() != null
+                ? snapshot.riskCandidates() : List.of();
+        Map<String, Long> countByCode = candidates.stream()
+                .collect(Collectors.groupingBy(RiskCandidate::riskCode, Collectors.counting()));
+
+        return AiWeeklyReportPolicyEngine.RISK_CODES.stream()
+                .map(code -> new RiskCheckView(code, riskCodeLabel(code, ko),
+                        Math.toIntExact(countByCode.getOrDefault(code, 0L))))
+                .toList();
+    }
+
+    private String riskCodeLabel(String code, boolean ko) {
+        return switch (code) {
+            case "APPROVED_UNASSIGNED_OVERDUE" -> ko ? "담당자 없이 마감 초과" : "Overdue with no owner";
+            case "APPROVED_UNASSIGNED" -> ko ? "담당자 미지정" : "No owner";
+            case "OVERDUE_ACTIVE" -> ko ? "마감 초과" : "Past due";
+            case "WORKLOAD_CONCENTRATION" -> ko ? "업무 편중" : "Workload concentration";
+            case "COMPLETION_RATE_DROP" -> ko ? "완료율 하락" : "Completion rate drop";
+            case "SCHEDULE_CONFLICT" -> ko ? "일정 충돌" : "Schedule conflict";
+            case "APPROVAL_PENDING" -> ko ? "승인 대기" : "Awaiting approval";
+            case "CHECKLIST_NOT_STARTED" -> ko ? "체크리스트 미착수" : "Checklist not started";
+            case "BACKLOG_GROWTH" -> ko ? "미착수 누적" : "Growing backlog";
+            case "UNRESOLVED_MENTION" -> ko ? "미응답 멘션" : "Unanswered mention";
+            case "ON_HOLD_LONG" -> ko ? "장기 보류" : "Long on hold";
+            case "RESOURCE_MISSING" -> ko ? "관련 자료 없음" : "No linked resource";
+            default -> ko ? "기타 항목" : "Other check";
+        };
     }
 
     /** Snapshot이 담고 있는 요청 언어를 그대로 따른다. 없으면 한국어로 본다. */

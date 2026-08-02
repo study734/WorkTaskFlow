@@ -80,7 +80,8 @@ class OpenHtmlReportPdfRendererV72Test {
                 new SnapshotWorkflowView(1, 1, 2, 3, 0, 3),
                 List.of(new SnapshotTaskView("TASK-1", "실제 업무 <script>", "안전 라벨", "IN_PROGRESS", "HIGH", "MEMBER-1", "홍길동", "2026-07-20", "2026-07-27", null, "UPCOMING", null, null, null, List.of())),
                 List.of(new SnapshotMemberView("MEMBER-1", "홍길동", "LEADER", 5, 2, 3, 0, 100, 1)),
-                List.of(new CalendarConstraintView("EVENT-1", "주간 회의", "MEETING", "주간 회의", "2026-07-21", "2026-07-21", List.of()))
+                List.of(new CalendarConstraintView("EVENT-1", "주간 회의", "MEETING", "주간 회의", "2026-07-21", "2026-07-21", List.of())),
+                List.of()
         );
     }
 }

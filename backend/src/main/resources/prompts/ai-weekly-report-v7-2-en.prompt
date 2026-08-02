@@ -22,6 +22,10 @@ When confidence is HIGH, missingEvidence must be an empty array.
 When confidence is INSUFFICIENT_EVIDENCE, missingEvidence must hold at least one entry.
 Use MEDIUM when evidence is thin but the item is still worth reporting.
 
+Write complete sentences in a neutral, professional register. Do not use note-style
+fragments or bullet-like noun phrases. The server writes sentences in the same document,
+so a different register reads as a seam.
+
 When prose refers to a task, member, or event, write the ref itself (TASK-12,
 MEMBER-3, EVENT-7). The server replaces it with the real title or name before the
 reader sees it. Never avoid a ref by dropping the evidence link or inventing a title.

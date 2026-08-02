@@ -58,8 +58,15 @@ public class AiWeeklyReportApiDtos {
             SnapshotWorkflowView workflow,
             List<SnapshotTaskView> tasks,
             List<SnapshotMemberView> members,
-            List<CalendarConstraintView> calendarConstraints
+            List<CalendarConstraintView> calendarConstraints,
+            /**
+             * 서버가 검사한 위험 항목과 각 항목에서 뽑힌 후보 수. 후보가 0이어도 항목은 남는다.
+             * "위험 없음"이 검사를 안 했다는 뜻이 아니라는 것을 문서가 보여 주기 위한 값이다.
+             */
+            List<RiskCheckView> riskChecks
     ) {}
+
+    public record RiskCheckView(String code, String label, int candidateCount) {}
 
     public record ExecutiveJudgmentView(
             String headline,

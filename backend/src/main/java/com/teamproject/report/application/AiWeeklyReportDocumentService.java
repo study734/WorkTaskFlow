@@ -469,8 +469,7 @@ public class AiWeeklyReportDocumentService {
         List<IssueView> issues = doc.report.issues() == null ? List.of() : doc.report.issues();
         StringBuilder cards = new StringBuilder();
         if (issues.isEmpty()) {
-            cards.append(note(doc.ko ? "조치가 필요한 위험 업무가 없습니다."
-                    : "No task requires action."));
+            cards.append(riskCheckSummary(doc));
         }
         for (IssueView issue : issues) {
             SnapshotTaskView task = taskOf(doc.report, issue);
@@ -512,6 +511,35 @@ public class AiWeeklyReportDocumentService {
                 cards,
                 doc.ko ? "근거가 부족한 항목은 단정하지 않고 추가 확인 사항을 표시했습니다."
                         : "Items with thin evidence are flagged for confirmation instead of asserted.");
+    }
+
+    /**
+     * 위험 후보가 없을 때 "없습니다" 한 줄만 남기면 아무 일도 안 한 것으로 읽힌다. 유료
+     * 문서에서 특히 나쁘다. policy engine은 실제로 항목 전체를 검사하므로 무엇을 봤고 각
+     * 항목이 몇 건이었는지 그대로 보여 준다. 지어내는 것이 아니라 이미 한 일을 밝히는 것이다.
+     */
+    private String riskCheckSummary(Doc doc) {
+        List<RiskCheckView> checks = doc.report.riskChecks() == null ? List.of() : doc.report.riskChecks();
+        if (checks.isEmpty()) {
+            return note(doc.ko ? "조치가 필요한 위험 업무가 없습니다." : "No task requires action.");
+        }
+
+        StringBuilder grid = new StringBuilder();
+        for (RiskCheckView check : checks) {
+            grid.append("<div><b>").append(escape(check.label())).append("</b><span>")
+                    .append(check.candidateCount()).append(doc.ko ? "건" : "").append("</span></div>");
+        }
+
+        int tasks = doc.report.tasks() == null ? 0 : doc.report.tasks().size();
+        return "<div class=\"summary\"><strong>"
+                + (doc.ko
+                        ? "확인한 위험 항목 " + checks.size() + "개 · 업무 " + tasks + "건 · 조치가 필요한 항목 없음"
+                        : "Checked " + checks.size() + " risk signals across " + tasks + " tasks · none require action")
+                + "</strong><div class=\"decision-grid\">" + grid + "</div><p class=\"limit\">"
+                + (doc.ko
+                        ? "각 항목은 확정 데이터로 판정했습니다. 0건은 해당 신호가 없었다는 뜻입니다."
+                        : "Each signal was evaluated against confirmed data. Zero means the signal did not occur.")
+                + "</p></div>";
     }
 
     // ---------- PAGE 4 : 결정과 실행 ----------
