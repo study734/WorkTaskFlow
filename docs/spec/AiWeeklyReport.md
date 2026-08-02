@@ -1819,7 +1819,7 @@ Fallback 생성 규칙:
 - Analysis JSON Schema
 - Java 계약 클래스 ↔ 저장 JSON Schema 공개 필드·enum 드리프트
 - SDK Structured Outputs 계약 클래스 local validation
-- 기간 7일 검증
+- 기간 유효성 검증 (`from < toExclusive`, 이미 끝난 기간)
 - 현재/이전 기간 delta
 - risk candidate 규칙
 - severity·precedence 정렬
