@@ -103,9 +103,21 @@ public class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
                 log.warn("OpenAI call timed out");
                 throw new OpenAiReportTimeoutException("Request timed out", e);
             }
-            log.warn("OpenAI report call failed with exception: {}", e.getClass().getSimpleName());
+            // 예외 클래스만 남기면 왜 fallback으로 떨어졌는지 알 수 없다. 근본 원인 클래스까지
+            // 남긴다. 메시지 본문은 응답 조각을 담을 수 있어 넣지 않는다(명세 8.2).
+            log.warn("OpenAI report call failed: exception={} rootCause={}",
+                    e.getClass().getSimpleName(), rootCauseName(e));
             throw new OpenAiReportInvalidResponseException("OpenAI response call failed", e);
         }
+    }
+
+    /** 원인 사슬의 마지막 클래스 이름. 값이나 메시지는 담지 않는다. */
+    private String rootCauseName(Throwable e) {
+        Throwable cause = e;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause.getClass().getSimpleName();
     }
 
     /**
