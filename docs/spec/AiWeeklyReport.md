@@ -777,9 +777,11 @@ JSON Schema 검증 이후 별도의 업무 규칙 검증을 수행한다.
 
 - candidateRef가 Snapshot에 존재
 - 모든 taskRef가 Snapshot tasks에 존재
-- memberRef가 Snapshot members에 존재
-- eventRef가 Snapshot calendarEvents에 존재
+- eventRef가 Snapshot calendarEvents에 존재 (deadline.referenceRef 경로에서 검사)
 - metricRef가 허용된 metric path
+
+> 2026-08-02: AI 출력 계약에 memberRef를 담는 필드가 없다(§6.2). 검사 대상이 없으므로
+> 목록에서 뺀다. 산문에 쓰인 `MEMBER-n`은 검증 대상이 아니라 렌더링 시 치환 대상이다(§8.1).
 
 ## 7.2 Candidate subset 검증
 
@@ -792,10 +794,14 @@ AI가 선택한 다음 값은 candidate 허용 목록의 부분집합이어야 �
 ## 7.3 상태 검증
 
 - 성과 taskRef는 실제 `COMPLETED`
-- 미할당 위험은 assigneeRef가 null
-- 지연 위험은 dueState가 `OVERDUE`
-- 보류 위험은 status가 `ON_HOLD`
-- 체크리스트 위험은 server checklist 값과 일치
+- 미할당 위험은 근거 업무 중 **적어도 하나**가 assigneeRef null
+- 지연 위험은 근거 업무 중 적어도 하나가 dueState `OVERDUE`
+- 보류 위험은 근거 업무 중 적어도 하나가 status `ON_HOLD`
+- 체크리스트 위험은 근거 업무 중 적어도 하나가 completed 0
+
+> 2026-08-02: "모든 근거 업무가 만족"으로 구현했더니 서버 자체 fallback이 거부됐다.
+> 위험 후보 하나가 업무 여러 건과 신호 여러 개를 묶기 때문이다(부하 편중 후보에 지연 업무가
+> 섞이는 식). 근거가 **하나도 없는** 주장만 걸리도록 완화했다.
 
 ## 7.4 비교 검증
 
@@ -952,10 +958,13 @@ Validation:
 
 - from 필수
 - toExclusive 필수
-- 기간 7일
+- `from < toExclusive` (기간 길이 제약 없음 — D3 개정)
 - language: KO 또는 EN
 - group timezone 기준 완료된 기간
 - 생성 권한 필요
+
+> 2026-08-02 정정: 여기 있던 "기간 7일"은 D3(§4.3)이 달 기준 주차·월간·연간을 허용하도록
+> 개정한 뒤에도 남아 있던 문장이다. 구현은 D3를 따른다.
 
 Response:
 
@@ -969,15 +978,23 @@ Response:
   "status": "FINALIZED",
   "analysisMode": "OPENAI",
   "generatedAt": "2026-07-27T00:05:10Z",
-  "downloadUrl": "/api/v1/groups/7/reports/ai-weekly/91/download"
+  "downloadUrl": "/api/v1/groups/7/reports/ai-weekly/91/download",
+  "createdNew": true
 }
 ```
+
+`createdNew`가 false면 저장된 revision을 그대로 돌려준 것이고 OpenAI를 부르지 않았다.
+프런트는 이 값으로 재생성 여부를 사용자에게 묻는다.
 
 HTTP:
 
 - 새 생성: `201 Created`
 - 동일 결과 재사용: `200 OK`
-- 생성 진행 중: `202 Accepted`
+- 같은 기간이 동시에 생성 중이라 번호를 확보하지 못함: `409 AI_REPORT_CONCURRENT_GENERATION`
+
+> 2026-08-02 정정: `202 Accepted`(생성 진행 중)를 제거했다. 생성은 동기 처리이고 진행 중
+> 상태를 돌려주는 경로가 없다. §14의 GENERATING revision 선저장과 한 세트이며 둘 다
+> 미구현이다.
 
 ## 9.2 조회
 
@@ -1720,6 +1737,14 @@ public AiWeeklyReportEnvelope generate(
 4. FINALIZED 갱신 → 새 transaction
 ```
 
+> 2026-08-02 현재 구현: 2·3은 지켜진다. 생성 메서드에 트랜잭션을 걸지 않아 OpenAI 호출
+> 동안 커넥션을 잡지 않는다. 1·4의 **GENERATING revision 선저장은 미구현**이다. 완성된
+> 결과를 한 번에 저장하고, revision 번호 충돌은 재시도로 처리한다.
+>
+> 선저장이 값어치를 가지려면 그 행을 읽는 쪽(폴링 엔드포인트나 진행 UI)이 있어야 한다.
+> 지금은 없다. 도입하려면 `analysis_json`·`analysis_mode`를 nullable로 바꾸는 마이그레이션과
+> 엔티티 가변화가 필요하므로, 비동기 전환과 함께 하는 것이 맞다.
+
 주의:
 
 - OpenAI 호출 동안 DB transaction과 connection을 잡지 않는다.
@@ -1743,9 +1768,13 @@ public AiWeeklyReportEnvelope generate(
 
 기존 구현의 다음 게이트는 **그대로 유지한다**.
 
-- TEAM 그룹만 사용 가능 (`PERSONAL_GROUP_RESTRICTED`)
-- 유료 그룹만 사용 가능 (`AI_REPORT_PAID_REQUIRED`)
-- 같은 주간 성공 생성 3회 상한 (`AI_REPORT_WEEKLY_LIMIT`)
+- TEAM 그룹만 사용 가능 — 구현됨. `AiWeeklyReportAccessService`가 TEAM·PAID를 함께 보고
+  `AI_REPORT_PAID_REQUIRED`로 거부한다(별도 `PERSONAL_GROUP_RESTRICTED` 분기는 두지 않는다)
+- 유료 그룹만 사용 가능 (`AI_REPORT_PAID_REQUIRED`) — 구현됨
+- 같은 기간 성공 생성 3회 상한 (`AI_REPORT_WEEKLY_LIMIT`) — **미구현**
+
+> 2026-08-02 확인: 생성 횟수 상한이 코드에 없다. 유료 호출이므로 재생성마다 과금되는데
+> 서버 쪽 상한이 없고, 프런트의 재생성 확인 모달이 유일한 제동이다. 구현 여부를 정해야 한다.
 
 D4로 DRAFT 상태가 사라지므로, 팀원에게 미확정 리포트를 숨기던
 `AI_REPORT_NOT_FINALIZED` 분기도 함께 사라진다. 생성이 끝나면 활성 팀원은
