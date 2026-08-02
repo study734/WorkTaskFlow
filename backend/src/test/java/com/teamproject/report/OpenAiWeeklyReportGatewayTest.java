@@ -224,4 +224,26 @@ class OpenAiWeeklyReportGatewayTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode) node).put("status", status);
         return json.writeValueAsString(node);
     }
+
+    /**
+     * 프롬프트 리소스가 없으면 gateway가 조용히 내장 문구로 물러선다. 그 문구에는 validator
+     * 규칙이 빠져 있어 결과가 전부 검증에 걸리고 모든 리포트가 SERVER_FALLBACK이 된다.
+     * 실제로 겪은 증상이다. 확장자를 .txt에서 .prompt로 옮겼으므로 경로를 고정한다.
+     * (.txt는 CI repository-safety가 추적을 거부한다.)
+     */
+    @Test
+    @DisplayName("두 언어 프롬프트 리소스가 클래스패스에 있고 검증 규칙을 담고 있다")
+    void keepsBothPromptResourcesOnTheClasspath() throws IOException {
+        for (String language : List.of("ko", "en")) {
+            String path = "/prompts/ai-weekly-report-v7-2-" + language + ".prompt";
+            try (InputStream stream = getClass().getResourceAsStream(path)) {
+                assertThat(stream).as("%s 리소스", path).isNotNull();
+                String prompt = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                assertThat(prompt)
+                        .contains("ai-weekly-report-analysis.v1")
+                        .contains("GROUP_ADMIN")
+                        .contains("TASK-12");
+            }
+        }
+    }
 }

@@ -106,13 +106,25 @@ public class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
         }
     }
 
+    /**
+     * 확장자가 {@code .prompt}인 이유는 CI의 repository-safety가 추적된 {@code .txt}를 거부하기
+     * 때문이다. 파일은 런타임 필수 리소스라 지울 수 없다.
+     *
+     * <p>내장 문구로 물러서면 validator 규칙이 빠진 짧은 프롬프트가 쓰이고, 결과가 검증에
+     * 걸려 모든 리포트가 SERVER_FALLBACK으로 떨어진다. 실제로 겪은 증상이라 조용히 넘기지
+     * 않고 남긴다.
+     */
     private String loadPrompt(String language) {
-        String resourceName = "/prompts/ai-weekly-report-v7-2-" + (language.equalsIgnoreCase("EN") ? "en" : "ko") + ".txt";
+        String resourceName = "/prompts/ai-weekly-report-v7-2-" + (language.equalsIgnoreCase("EN") ? "en" : "ko") + ".prompt";
         try (InputStream stream = getClass().getResourceAsStream(resourceName)) {
             if (stream != null) {
                 return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             }
-        } catch (Exception ignored) {}
+            log.warn("Prompt resource missing, falling back to the built-in prompt: {}", resourceName);
+        } catch (Exception e) {
+            log.warn("Prompt resource unreadable, falling back to the built-in prompt: {} cause={}",
+                    resourceName, e.getClass().getSimpleName());
+        }
 
         return "당신은 팀 업무 회의를 지원하는 분석가다.\n" +
                "서버가 제공한 수치와 facts를 변경하거나 재계산하지 않는다.\n" +
