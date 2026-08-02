@@ -14,7 +14,6 @@ import org.springframework.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -71,12 +70,19 @@ public class AiWeeklyReportGenerationService {
 
     public record GenerationResult(AiWeeklyReportRevision revision, boolean createdNew) {}
 
-    @Transactional
     public AiWeeklyReportRevision generate(AiWeeklyReportSnapshotV1 rawSnapshot, GenerateCommand command) {
         return generateResult(rawSnapshot, command).revision();
     }
 
-    @Transactional
+    /**
+     * 트랜잭션을 걸지 않는다. 명세 §14는 OpenAI 호출 동안 DB transaction과 connection을 잡지
+     * 말라고 정한다. 전에는 이 메서드 전체가 하나의 트랜잭션이라 30초짜리 외부 호출이 끝날
+     * 때까지 커넥션을 물고 있었고, 동시 생성 몇 건이면 풀이 마른다.
+     *
+     * <p>여기서 트랜잭션을 열지 않으므로 DB 작업은 Spring Data repository가 호출마다 짧은
+     * 트랜잭션으로 처리하고 곧바로 커넥션을 돌려준다. 이 클래스 안에서 @Transactional을 다시
+     * 붙여도 자기 호출이라 프록시를 타지 않는다.
+     */
     public GenerationResult generateResult(AiWeeklyReportSnapshotV1 rawSnapshot, GenerateCommand command) {
         if (rawSnapshot == null || command == null) {
             throw new IllegalArgumentException("Snapshot and command must not be null");
@@ -97,13 +103,7 @@ public class AiWeeklyReportGenerationService {
 
         // 3. Deduplication check if regenerate=false
         if (!command.regenerate()) {
-            Optional<AiWeeklyReportRevision> existing = revisionRepository
-                    .findTopByGroupIdAndPeriodFromAndPeriodToExclusiveAndLanguageOrderByRevisionDesc(
-                            command.groupId(),
-                            command.periodFrom(),
-                            command.periodToExclusive(),
-                            command.language()
-                    );
+            Optional<AiWeeklyReportRevision> existing = findLatest(command);
             if (existing.isPresent()) {
                 return new GenerationResult(existing.get(), false);
             }
