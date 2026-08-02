@@ -339,8 +339,12 @@ public class AiWeeklyReportDocumentService {
                 doc.ko ? "회의 전 확인할 위험" : "Risks to review before the meeting",
                 doc.ko ? "상세 근거와 조치는 다음 페이지" : "Evidence and actions on the next page",
                 signals(doc),
-                doc.ko ? "다음 기간 주의 일정" : "Upcoming schedule",
-                doc.ko ? "캘린더에 확정된 일정만 표시" : "Confirmed calendar events only",
+                doc.ko ? "기간 직후 3일 일정" : "Next three days",
+                // 스냅샷이 담는 창이 기간 종료 후 3일이다. 제목이 "다음 기간"이면 다음 주
+                // 전체를 보여줄 것처럼 읽히는데 실제로는 3일치다. 창을 넓히면 AI 입력 계약이
+                // 함께 바뀌므로, 문서는 담고 있는 것을 그대로 말한다.
+                doc.ko ? "마감과 겹칠 수 있는 확정 일정만 표시"
+                        : "Confirmed events that may collide with due dates",
                 timeline(doc),
                 doc.ko ? "AI 판단은 표시된 근거 업무와 확정 지표를 기준으로 작성했습니다."
                         : "AI judgments are based on the linked evidence tasks and confirmed metrics.");
@@ -455,8 +459,8 @@ public class AiWeeklyReportDocumentService {
         List<CalendarConstraintView> events = doc.report.calendarConstraints() == null
                 ? List.of() : doc.report.calendarConstraints();
         if (events.isEmpty()) {
-            return note(doc.ko ? "캘린더에 확정된 다음 기간 일정이 없습니다."
-                    : "No confirmed upcoming events on the calendar.");
+            return note(doc.ko ? "기간 직후 3일 안에 확정된 일정이 없습니다."
+                    : "No confirmed events in the three days after the period.");
         }
         StringBuilder html = new StringBuilder("<div class=\"timeline\">");
         int count = 0;

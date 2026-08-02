@@ -13,6 +13,7 @@ import com.teamproject.task.application.TaskReportDataQuery.TaskSnapshot;
 import com.teamproject.task.domain.Task;
 import com.teamproject.task.domain.TaskActivityEvent;
 import com.teamproject.task.domain.TaskActivityEventRepository;
+import com.teamproject.task.domain.TaskChecklistItemRepository;
 import com.teamproject.task.domain.TaskRepository;
 import com.teamproject.task.domain.WeeklyObjective;
 import com.teamproject.task.domain.WeeklyObjectiveRepository;
@@ -32,12 +33,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class TaskReportDataQueryService implements TaskReportDataQuery {
     private final TaskActivityEventRepository events;
     private final TaskRepository tasks;
+    private final TaskChecklistItemRepository checklistItems;
     private final WeeklyObjectiveRepository objectives;
 
     public TaskReportDataQueryService(TaskActivityEventRepository events, TaskRepository tasks,
-            WeeklyObjectiveRepository objectives) {
+            TaskChecklistItemRepository checklistItems, WeeklyObjectiveRepository objectives) {
         this.events = events;
         this.tasks = tasks;
+        this.checklistItems = checklistItems;
         this.objectives = objectives;
     }
 
@@ -112,14 +115,28 @@ public class TaskReportDataQueryService implements TaskReportDataQuery {
 
     private List<TaskSnapshot> legacySnapshots(Long groupId, LocalDateTime from,
             LocalDateTime to) {
-        return tasks.findAllByGroupIdOrderByCreatedAtDesc(groupId).stream()
+        List<Task> selected = tasks.findAllByGroupIdOrderByCreatedAtDesc(groupId).stream()
                 .filter(task -> inRange(task.getCreatedAt(), from, to)
                         || inRange(task.getStartAt(), from, to)
                         || inRange(task.getDueAt(), from, to)
                         || inRange(task.getCompletedAt(), from, to)
                         || inRange(task.getUpdatedAt(), from, to))
-                .map(this::snapshot)
                 .toList();
+        // 활동 이력이 없는 업무다. 체크리스트는 이력이 아니라 현재 상태로도 셀 수 있고,
+        // 세지 않으면 리포트가 "체크리스트 0/0"이라고 말한다. 이력 테이블이 생기기 전에
+        // 만들어진 업무가 전부 이 경로를 타므로, 기존 팀은 협업 근거가 통째로 비어 보인다.
+        Map<Long, int[]> counts = checklistCounts(selected.stream().map(Task::getId).toList());
+        return selected.stream().map(task -> snapshot(task, counts)).toList();
+    }
+
+    private Map<Long, int[]> checklistCounts(List<Long> taskIds) {
+        if (taskIds.isEmpty()) return Map.of();
+        Map<Long, int[]> counts = new LinkedHashMap<>();
+        for (Object[] row : checklistItems.countByTaskIds(taskIds)) {
+            counts.put(((Number) row[0]).longValue(),
+                    new int[] {((Number) row[1]).intValue(), ((Number) row[2]).intValue()});
+        }
+        return counts;
     }
 
     private ActivityEvent event(TaskActivityEvent value) {
@@ -148,7 +165,8 @@ public class TaskReportDataQueryService implements TaskReportDataQuery {
                 value.isHistoryComplete());
     }
 
-    private TaskSnapshot snapshot(Task value) {
+    private TaskSnapshot snapshot(Task value, Map<Long, int[]> checklistCounts) {
+        int[] checklist = checklistCounts.getOrDefault(value.getId(), new int[] {0, 0});
         return new TaskSnapshot(value.getId(),
                 Status.valueOf(value.getStatus().name()),
                 Priority.valueOf(value.getPriority().name()),
@@ -156,8 +174,8 @@ public class TaskReportDataQueryService implements TaskReportDataQuery {
                 value.getCreatedAt(),
                 value.getDueAt(),
                 value.getCompletedAt(),
-                0,
-                0,
+                checklist[0],
+                checklist[1],
                 name(value.getBlockerType(), BlockerType.class),
                 name(value.getBlockerNextActionType(), BlockerNextActionType.class),
                 value.getBlockerReviewDate(),

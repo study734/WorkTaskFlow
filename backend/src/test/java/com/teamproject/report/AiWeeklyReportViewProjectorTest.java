@@ -286,6 +286,35 @@ class AiWeeklyReportViewProjectorTest {
     }
 
     /**
+     * 코드 사전은 모델이 쓴 말에만 적용해야 한다. ref를 먼저 바꾸면 그 자리에 들어간 업무
+     * 제목까지 사전을 거쳐, 사용자가 지은 "TEAM 워크숍 준비"가 "팀 전체 워크숍 준비"가 된다.
+     */
+    @Test
+    @DisplayName("치환해 넣은 업무 제목은 코드 사전이 건드리지 않는다")
+    void neverRewritesTheUserWrittenTitle() {
+        Fixture fixture = fixture();
+        Task collision = task(fixture, "TEAM 워크숍 준비", Task.Status.TODO, null);
+        flush();
+
+        String analysisJson = """
+                {"schemaVersion":"ai-weekly-report-analysis.v1","analysisStatus":"NORMAL",
+                 "executiveJudgment":{"headline":"TASK-%1$d는 다음 기간으로 미뤄야 합니다.",
+                 "interpretation":"TEAM이 함께 결정해야 합니다.",
+                 "metricRefs":["COMPLETION_RATE"],"evidenceTaskRefs":[],
+                 "confidence":"MEDIUM","missingEvidence":[]}}
+                """.formatted(collision.getId());
+
+        AiWeeklyReportView view = projector.project(revision(fixture,
+                snapshotWith(fixture, collision), analysisJson, "OPENAI"));
+
+        // 제목은 원문 그대로, 모델이 쓴 TEAM은 사람 말로.
+        assertThat(view.executiveJudgment().headline())
+                .isEqualTo("TEAM 워크숍 준비는 다음 기간으로 미뤄야 합니다.");
+        assertThat(view.executiveJudgment().interpretation())
+                .isEqualTo("팀 전체가 함께 결정해야 합니다.");
+    }
+
+    /**
      * 실제 시연 문서에서 남은 두 가지. 역할 enum은 사전에 없어 "LEADER가 결정해야 합니다"가
      * 그대로 실렸고, 숫자로 끝나는 제목은 조사 교정에서 빠져 "대량 업무 9이"가 됐다.
      */

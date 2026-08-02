@@ -323,6 +323,10 @@ public class AiWeeklyReportViewProjector {
 
         String resolve(String text) {
             if (text == null || text.isEmpty()) return text;
+            // 코드 치환을 먼저 한다. ref를 먼저 바꾸면 그 자리에 들어간 업무 제목까지 사전을
+            // 거치게 되고, "TEAM 워크숍 준비"처럼 사용자가 지은 제목이 "팀 전체 워크숍 준비"로
+            // 고쳐진다. 사전은 모델이 쓴 말에만 적용해야 한다. ref 표기는 사전에 없어 안전하다.
+            text = AiWeeklyReportCodeVocabulary.resolveInProse(text, ko);
             Matcher matcher = REF.matcher(text);
             StringBuilder out = new StringBuilder();
             int tail = 0;
@@ -334,9 +338,7 @@ public class AiWeeklyReportViewProjector {
                         out, text.substring(matcher.end()), replacement);
             }
             out.append(text, tail, text.length());
-            // ref만 바꾸면 "다수에서 OVERDUE 신호가 확인되어"처럼 계약 코드가 그대로 남는다.
-            // 모델은 프롬프트에서 본 어휘를 문장에 옮겨 적는다. 같은 종류의 누출이라 같이 막는다.
-            return AiWeeklyReportCodeVocabulary.resolveInProse(out.toString(), ko);
+            return out.toString();
         }
 
         private String displayNameOf(String ref) {
