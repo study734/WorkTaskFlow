@@ -1,6 +1,7 @@
 package com.teamproject.report;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.teamproject.report.application.AiWeeklyReportAnalysisRepair;
 import com.teamproject.report.application.AiWeeklyReportAnalysisValidator;
 import com.teamproject.report.application.AiWeeklyReportFallbackFactory;
 import com.teamproject.report.application.AiWeeklyReportGenerationService;
@@ -46,6 +47,7 @@ class AiWeeklyReportGenerationServiceTest {
     private final AiWeeklyReportPolicyEngine policyEngine = new AiWeeklyReportPolicyEngine();
     private final AiWeeklyReportAnalysisValidator validator = new AiWeeklyReportAnalysisValidator();
     private final AiWeeklyReportFallbackFactory fallbackFactory = new AiWeeklyReportFallbackFactory();
+    private final AiWeeklyReportAnalysisRepair repair = new AiWeeklyReportAnalysisRepair();
 
     private AiWeeklyReportSnapshotV1 initialRawSnapshot;
     private GenerateCommand baseCommand;
@@ -67,6 +69,33 @@ class AiWeeklyReportGenerationServiceTest {
     }
 
     @Test
+    @DisplayName("근거가 부족한데 확신만 HIGH이면 확신을 낮춰 쓰고 fallback으로 내리지 않는다")
+    void repairsOverconfidenceInsteadOfDiscardingThePaidAnswer() {
+        AiWeeklyReportGateway overconfident = snapshot -> {
+            var base = fallbackFactory.create(snapshot);
+            var judgment = base.executiveJudgment();
+            var patched = new com.teamproject.report.application.dto.AiWeeklyReportAnalysisDtos
+                    .ExecutiveJudgment(judgment.headline(), judgment.interpretation(),
+                    judgment.metricRefs(), judgment.evidenceTaskRefs(),
+                    com.teamproject.report.application.dto.AiWeeklyReportAnalysisDtos.Confidence.HIGH,
+                    java.util.List.of("이전 기간 비교 기준이 없습니다."));
+            return AiWeeklyReportGateway.Analysis.of(
+                    new com.teamproject.report.application.dto.AiWeeklyReportAnalysisDtos
+                            .AiWeeklyReportAnalysisV1(base.schemaVersion(), base.analysisStatus(),
+                            patched, base.achievement(), base.issues(), base.globalMissingEvidence()));
+        };
+
+        AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
+                policyEngine, overconfident, validator, repair, fallbackFactory, revisionRepository, json
+        );
+
+        AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
+
+        assertThat(revision.getAnalysisMode()).isEqualTo("OPENAI");
+        assertThat(revision.getAnalysisJson()).contains("\"confidence\":\"MEDIUM\"");
+    }
+
+    @Test
     @DisplayName("Gateway 정상 성공 시 OPENAI 모드로 FINALIZED revision이 저장된다")
     void normalOpenAiSuccess() {
         AtomicInteger callCount = new AtomicInteger(0);
@@ -76,7 +105,7 @@ class AiWeeklyReportGenerationServiceTest {
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, fakeGateway, validator, fallbackFactory, revisionRepository, json
+                policyEngine, fakeGateway, validator, repair, fallbackFactory, revisionRepository, json
         );
 
         AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
@@ -97,7 +126,7 @@ class AiWeeklyReportGenerationServiceTest {
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, failingGateway, validator, fallbackFactory, revisionRepository, json
+                policyEngine, failingGateway, validator, repair, fallbackFactory, revisionRepository, json
         );
 
         AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
@@ -121,7 +150,7 @@ class AiWeeklyReportGenerationServiceTest {
         ));
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, invalidOutputGateway, validator, fallbackFactory, revisionRepository, json
+                policyEngine, invalidOutputGateway, validator, repair, fallbackFactory, revisionRepository, json
         );
 
         AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
@@ -140,7 +169,7 @@ class AiWeeklyReportGenerationServiceTest {
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, gateway, validator, fallbackFactory, revisionRepository, json
+                policyEngine, gateway, validator, repair, fallbackFactory, revisionRepository, json
         );
 
         // First creation
@@ -165,7 +194,7 @@ class AiWeeklyReportGenerationServiceTest {
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, gateway, validator, fallbackFactory, revisionRepository, json
+                policyEngine, gateway, validator, repair, fallbackFactory, revisionRepository, json
         );
 
         // First creation
@@ -205,7 +234,7 @@ class AiWeeklyReportGenerationServiceTest {
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, gateway, validator, fallbackFactory, revisionRepository, json
+                policyEngine, gateway, validator, repair, fallbackFactory, revisionRepository, json
         );
 
         service.generate(initialRawSnapshot, baseCommand);
@@ -222,7 +251,7 @@ class AiWeeklyReportGenerationServiceTest {
     void retriesWhenTheRevisionNumberCollides() {
         AiWeeklyReportRevisionRepository flaky = collidingOnceRepository();
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, fallbackFactory, flaky, json);
+                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, repair, fallbackFactory, flaky, json);
 
         AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
 
@@ -236,7 +265,7 @@ class AiWeeklyReportGenerationServiceTest {
     void reportsAConflictInsteadOfCrashing() {
         AiWeeklyReportRevisionRepository alwaysColliding = alwaysCollidingRepository();
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, fallbackFactory, alwaysColliding, json);
+                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, repair, fallbackFactory, alwaysColliding, json);
 
         assertThatThrownBy(() -> service.generate(initialRawSnapshot, baseCommand))
                 .isInstanceOf(ApplicationException.class)
@@ -279,7 +308,7 @@ class AiWeeklyReportGenerationServiceTest {
     @DisplayName("저장본을 재사용할 때 그 뒤 데이터가 바뀌었는지 알려 준다")
     void tellsWhetherTheSourceChangedSinceTheStoredRevision() {
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, fallbackFactory, revisionRepository, json);
+                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, repair, fallbackFactory, revisionRepository, json);
 
         GenerationResult created = service.generateResult(initialRawSnapshot, baseCommand);
         assertThat(created.createdNew()).isTrue();
@@ -319,7 +348,7 @@ class AiWeeklyReportGenerationServiceTest {
             return AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot));
         };
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, counting, validator, fallbackFactory, revisionRepository, json);
+                policyEngine, counting, validator, repair, fallbackFactory, revisionRepository, json);
 
         service.generateResult(initialRawSnapshot, baseCommand);
         GenerateCommand regenerate = new GenerateCommand(baseCommand.groupId(), baseCommand.periodFrom(),
@@ -345,7 +374,7 @@ class AiWeeklyReportGenerationServiceTest {
         AiWeeklyReportGateway withUsage = snapshot ->
                 new AiWeeklyReportGateway.Analysis(fallbackFactory.create(snapshot), 5123, 764);
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, withUsage, validator, fallbackFactory, revisionRepository, json);
+                policyEngine, withUsage, validator, repair, fallbackFactory, revisionRepository, json);
 
         AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
 

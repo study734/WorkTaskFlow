@@ -44,6 +44,7 @@ public class AiWeeklyReportGenerationService {
     private final AiWeeklyReportPolicyEngine policyEngine;
     private final AiWeeklyReportGateway gateway;
     private final AiWeeklyReportAnalysisValidator validator;
+    private final AiWeeklyReportAnalysisRepair repair;
     private final AiWeeklyReportFallbackFactory fallbackFactory;
     private final AiWeeklyReportRevisionRepository revisionRepository;
     private final ObjectMapper objectMapper;
@@ -62,6 +63,7 @@ public class AiWeeklyReportGenerationService {
             AiWeeklyReportPolicyEngine policyEngine,
             AiWeeklyReportGateway gateway,
             AiWeeklyReportAnalysisValidator validator,
+            AiWeeklyReportAnalysisRepair repair,
             AiWeeklyReportFallbackFactory fallbackFactory,
             AiWeeklyReportRevisionRepository revisionRepository,
             ObjectMapper objectMapper
@@ -69,6 +71,7 @@ public class AiWeeklyReportGenerationService {
         this.policyEngine = policyEngine;
         this.gateway = gateway;
         this.validator = validator;
+        this.repair = repair;
         this.fallbackFactory = fallbackFactory;
         this.revisionRepository = revisionRepository;
         this.objectMapper = objectMapper;
@@ -156,6 +159,13 @@ public class AiWeeklyReportGenerationService {
             analysis = answer.analysis();
             inputTokens = answer.inputTokens();
             outputTokens = answer.outputTokens();
+            AiWeeklyReportAnalysisRepair.Result repaired = repair.repair(analysis);
+            if (repaired.repaired()) {
+                // 규칙 하나 때문에 유료 응답을 통째로 버리지 않는다. 무엇을 낮췄는지는 남긴다.
+                log.info("AI weekly report analysis repaired before validation: groupId={} repairs={}",
+                        command.groupId(), repaired.repairs());
+                analysis = repaired.analysis();
+            }
             ValidationResult validationResult = validator.validate(snapshot, analysis);
             if (!validationResult.valid()) {
                 // 왜 fallback으로 내려갔는지 남기지 않으면 운영에서 원인을 찾을 방법이 없다.

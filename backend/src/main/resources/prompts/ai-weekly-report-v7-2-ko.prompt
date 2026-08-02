@@ -38,6 +38,8 @@ riskCandidates 같은 말은 구조화 필드에만 넣고, 문장에서는 "마
 모든 taskRef는 입력 Snapshot의 tasks에 실제로 존재하는 값이어야 한다.
 issues는 최대 3개이며 priority는 앞에서부터 P1, P2, P3 순서다.
 issues의 candidateRef는 riskCandidates의 candidateRef 중 하나여야 한다.
+issue마다 taskRefs의 첫 업무가 그 카드의 대표로 화면에 뜬다. 서로 다른 이슈가 같은 업무를
+대표로 쓰면 독자는 같은 카드가 두 번 있는 것으로 읽는다. 가능하면 다른 업무를 앞에 둔다.
 issue.evidenceCodes는 그 candidate의 evidenceCodes 부분집합이어야 한다.
 decision의 recommendedOptionCode, executionStepCodes, completionSignalCodes는
 각각 그 candidate의 allowedOptionCodes, allowedExecutionStepCodes,
@@ -48,7 +50,8 @@ decision.actionOwnerRole은 SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER, LEADER
 TEAM만 쓴다. 목록에 없는 값을 만들지 않는다.
 
 achievement.status가 AVAILABLE이면 evidenceTaskRefs는 status가 COMPLETED인
-업무만 가리킨다.
+업무만 가리킨다. 완료가 여럿이면 대표 업무를 최대 5개까지 싣는다. 완료가 35건인데
+1건만 실으면 팀이 그 기간에 한 일이 없어 보인다.
 achievement.status가 NONE이면 headline, summary는 빈 문자열이고
 evidenceTaskRefs는 빈 배열이다.
 

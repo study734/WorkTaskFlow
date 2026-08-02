@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -147,6 +148,13 @@ public class AiWeeklyReportDocumentService {
 
         StringBuilder rows = new StringBuilder();
         List<SnapshotTaskView> tasks = report.tasks() == null ? List.of() : report.tasks();
+        // 표에는 15건만 실린다. id 순으로 자르면 그 15건이 하필 급한 업무일 이유가 없다.
+        // 기본 리포트는 전량을 싣기 때문에 순서가 문제되지 않지만, 여기서는 순서가 곧 선택이다.
+        tasks = tasks.stream()
+                .sorted(Comparator.comparingInt((SnapshotTaskView t) -> dueRank(t.dueState()))
+                        .thenComparing(t -> orDash(t.dueAt()))
+                        .thenComparing(t -> orDash(t.realTitle())))
+                .toList();
         int shown = 0;
         for (SnapshotTaskView task : tasks) {
             if (shown++ >= MAX_TABLE_ROWS) break;
@@ -606,9 +614,11 @@ public class AiWeeklyReportDocumentService {
                                 + issues.size() + " risks · " + decisions + " decisions",
                 doc.ko ? "모든 AI 판단에 근거 업무가 연결되었습니다."
                         : "Every AI judgment is linked to an evidence task.",
+                // 항목이 완결 문장이라 쉼표로 이으면 "없습니다., 마감"이 된다. 줄로 나눈다.
                 missing.isEmpty() ? ""
                         : "<br>" + (doc.ko ? "추가 확인 필요: " : "Needs confirmation: ")
-                                + escape(String.join(", ", missing)),
+                                + missing.stream().map(this::escape)
+                                        .collect(java.util.stream.Collectors.joining("<br>· ", "<br>· ", "")),
                 doc.ko ? "회의 종료 조건" : "Meeting exit criteria",
                 doc.ko ? "결정 항목의 상태, 담당자, 기한, 완료 조건이 WorkTaskFlow에 기록됨"
                         : "Status, owner, due date, and completion criteria recorded in WorkTaskFlow",
@@ -653,6 +663,19 @@ public class AiWeeklyReportDocumentService {
             }
         }
         return parts.isEmpty() ? "-" : String.join(", ", parts);
+    }
+
+    /** 회의에서 먼저 봐야 하는 순서. 지난 것, 곧 올 것, 멈춘 것, 나머지, 끝난 것. */
+    private int dueRank(String dueState) {
+        return switch (orDash(dueState)) {
+            case "OVERDUE" -> 0;
+            case "DUE_SOON" -> 1;
+            case "UPCOMING" -> 2;
+            case "NO_DUE" -> 3;
+            case "COMPLETED_LATE" -> 4;
+            case "COMPLETED_ON_TIME" -> 5;
+            default -> 6;
+        };
     }
 
     /** 상태만 쓰면 "언제까지"가 문서에 없다. 회의에서 바로 필요한 값이라 마감을 함께 적는다. */

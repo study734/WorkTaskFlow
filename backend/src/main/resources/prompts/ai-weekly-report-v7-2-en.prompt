@@ -38,6 +38,9 @@ this document aloud in the meeting.
 Every taskRef must exist in the tasks array of the input snapshot.
 Provide at most 3 issues, with priority P1, P2, P3 in that order.
 Each issue candidateRef must be one of the riskCandidates candidateRef values.
+The first entry of taskRefs becomes the card heading a reader sees. When two issues
+lead with the same task, the page looks like it repeats one card. Prefer a different
+leading task for each issue.
 issue.evidenceCodes must be a subset of that candidate evidenceCodes.
 decision recommendedOptionCode, executionStepCodes, and completionSignalCodes must
 come from that candidate allowedOptionCodes, allowedExecutionStepCodes, and
@@ -48,7 +51,9 @@ decision.actionOwnerRole must be SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER,
 LEADER, or TEAM. Never invent a value outside these lists.
 
 When achievement.status is AVAILABLE, evidenceTaskRefs must point only to tasks
-whose status is COMPLETED.
+whose status is COMPLETED. When several tasks were completed, list up to five
+representative ones. Citing one task out of thirty-five reads as if the team
+delivered almost nothing.
 When achievement.status is NONE, headline and summary must be empty strings and
 evidenceTaskRefs must be an empty array.
 
