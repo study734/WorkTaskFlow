@@ -163,4 +163,37 @@ class AiWeeklyReportDocumentCodeLabelTest {
                 List.of(), List.of(), List.of());
         return service.generate(view, "퇴사 팀", "Asia/Seoul", "KO");
     }
+
+    /**
+     * MAX_TASKS(100) 때문에 AI가 본 업무가 기간 전체보다 적을 수 있다. 연간처럼 긴 기간에서는
+     * 거의 항상 그렇다. 표와 일정은 잘림을 밝히는데 정작 분석 대상이 잘린 것만 감추면
+     * 전 기간을 본 결론으로 읽힌다.
+     */
+    @Test
+    @DisplayName("분석이 본 업무가 기간 전체보다 적으면 문서에 밝힌다")
+    void disclosesThatTheAnalysisSawFewerTasksThanThePeriod() {
+        assertThat(renderWithTaskCounts(500, 100, "KO"))
+                .contains("AI 분석은 기간 업무 500건 중 100건을 대상으로 했습니다");
+        assertThat(renderWithTaskCounts(500, 100, "EN"))
+                .contains("covered 100 of 500 tasks");
+        // 잘리지 않았으면 아무 말도 붙이지 않는다.
+        assertThat(renderWithTaskCounts(12, 12, "KO")).doesNotContain("건을 대상으로 했습니다");
+    }
+
+    private String renderWithTaskCounts(int periodTaskCount, int analyzedTasks, String language) {
+        List<SnapshotTaskView> tasks = new java.util.ArrayList<>();
+        for (int i = 1; i <= analyzedTasks; i++) {
+            tasks.add(new SnapshotTaskView("TASK-" + i, "업무 " + i, "라벨", "TODO", "NORMAL",
+                    null, null, null, null, null, null, null, null, null, List.of()));
+        }
+        AiWeeklyReportView view = new AiWeeklyReportView(1L, 7L,
+                LocalDate.of(2025, 1, 1), LocalDate.of(2026, 1, 1), 1, "FINALIZED", "OPENAI",
+                LocalDateTime.of(2026, 1, 2, 9, 0), "/download",
+                null, null, List.of(), List.of(),
+                new SnapshotMetricsView(periodTaskCount, 10, null, 0, null),
+                new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
+                new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
+                tasks, List.of(), List.of());
+        return service.generate(view, "퇴사 팀", "Asia/Seoul", language).html();
+    }
 }

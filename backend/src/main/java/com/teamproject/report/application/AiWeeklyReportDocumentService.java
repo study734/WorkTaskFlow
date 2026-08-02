@@ -255,6 +255,17 @@ public class AiWeeklyReportDocumentService {
                     ? "담당자가 지정되지 않은 업무 " + workflow.todoUnassignedCount() + "건이 있습니다."
                     : workflow.todoUnassignedCount() + " task(s) have no assignee.");
         }
+        // 분석이 본 업무가 기간 전체보다 적으면 반드시 밝힌다. 표와 일정은 잘림을 알리는데
+        // 정작 AI 판단의 대상이 잘린 것만 감추면, 읽는 쪽은 전 기간을 본 결론으로 받아들인다.
+        // 연간처럼 긴 기간에서 흔하다.
+        int analyzed = doc.report.tasks() == null ? 0 : doc.report.tasks().size();
+        if (analyzed > 0 && metrics.periodTaskCount() > analyzed) {
+            lines.add(doc.ko
+                    ? "AI 분석은 기간 업무 " + metrics.periodTaskCount() + "건 중 " + analyzed
+                            + "건을 대상으로 했습니다. 수치는 전체 기간 기준입니다."
+                    : "The AI analysis covered " + analyzed + " of " + metrics.periodTaskCount()
+                            + " tasks. The metrics above cover the whole period.");
+        }
         SnapshotComparisonView comparison = doc.report.comparison();
         if (comparison != null && "AVAILABLE".equals(comparison.status())
                 && comparison.completionRateDiffPercent() != null) {
