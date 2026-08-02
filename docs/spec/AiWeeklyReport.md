@@ -155,7 +155,7 @@ Structured Outputs는 형식을 보장하는 계층이며, 실제 업무 존재 
 | 페이지 | 역할 | 생성 주체 |
 |---|---|---|
 | 1 | 확정 업무 현황 | 서버 |
-| 2 | 이번 주 핵심 | 서버 + AI |
+| 2 | 기간 핵심 (문서에는 "이번 주·이번 달·올해·이번 기간"으로 표기) | 서버 + AI |
 | 3 | 조치가 필요한 업무 | 서버 + AI |
 | 4 | 결정과 실행 | 서버 + AI |
 
@@ -178,7 +178,7 @@ Structured Outputs는 형식을 보장하는 계층이며, 실제 업무 존재 
 
 이 페이지에는 OpenAI 결과를 사용하지 않는다.
 
-## 2.3 페이지 2 — 이번 주 핵심
+## 2.3 페이지 2 — 기간 핵심
 
 필수 항목:
 
@@ -307,37 +307,40 @@ docs/contracts/ai-weekly-report-snapshot-v1.schema.json
 ```json
 {
   "schemaVersion": "ai-weekly-report-snapshot.v1",
-  "generatedAt": "2026-07-27T00:05:00Z",
-  "language": "KO",
-  "group": {},
-  "period": {},
+  "reportContext": {},
   "metrics": {},
   "comparison": {},
   "workflow": {},
   "members": [],
   "tasks": [],
-  "calendarEvents": [],
-  "riskCandidates": [],
-  "policy": {}
+  "calendarConstraints": [],
+  "riskCandidates": []
 }
 ```
+
+`generatedAt`·`language`는 `reportContext` 안에 있다. 별도 `policy` 객체는 없다 —
+허용 조치 목록은 업무별 `allowed*Codes`와 위험 후보의 `allowed*Codes`로 전달한다.
 
 ## 4.3 그룹·기간
 
 ```json
 {
-  "group": {
-    "ref": "GROUP-7",
-    "type": "TEAM",
-    "timezone": "Asia/Seoul"
-  },
-  "period": {
-    "from": "2026-07-20",
-    "toExclusive": "2026-07-27",
-    "durationDays": 7
+  "reportContext": {
+    "groupRef": "GROUP-7",
+    "period": {
+      "from": "2026-07-20",
+      "toExclusive": "2026-07-27",
+      "timezone": "Asia/Seoul"
+    },
+    "generatedAt": "2026-07-27T00:05:00Z",
+    "language": "KO",
+    "promptVersion": "v7-2-prompt-001"
   }
 }
 ```
+
+그룹 type은 전달하지 않는다. TEAM·유료 여부는 서버가 접근 제어에서 판정한다(§15).
+기간 길이(`durationDays`)도 전달하지 않는다. `from`·`toExclusive`로 충분하다.
 
 규칙 (D3 확정, 2026-07-31 개정):
 
@@ -364,20 +367,13 @@ docs/contracts/ai-weekly-report-snapshot-v1.schema.json
     "periodTaskCount": 12,
     "completionRatePercent": 42,
     "onTimeRatePercent": 75,
-    "delayedTaskCount": 2,
-    "averageCompletionHours": 34,
-    "statusCounts": {
-      "requested": 2,
-      "todo": 2,
-      "inProgress": 2,
-      "onHold": 1,
-      "completed": 5,
-      "rejected": 0,
-      "cancelled": 0
-    }
+    "delayedCount": 2,
+    "averageCompletionHours": 34
   }
 }
 ```
+
+상태별 건수는 `workflow`(§4.6)에 있다. `metrics`에는 `statusCounts`가 없다.
 
 이 값들은 서버 계산값이다.
 
@@ -396,19 +392,17 @@ OpenAI는 다음을 할 수 없다.
 {
   "comparison": {
     "status": "AVAILABLE",
-    "previousPeriod": {
-      "from": "2026-07-13",
-      "toExclusive": "2026-07-20"
-    },
-    "deltas": {
-      "periodTaskCount": 2,
-      "completionRatePoint": -8,
-      "onTimeRatePoint": -8,
-      "delayedTaskCount": 1
-    }
+    "previousFrom": "2026-07-13",
+    "previousToExclusive": "2026-07-20",
+    "periodTaskCountDelta": 2,
+    "completionRatePointDelta": -8,
+    "onTimeRatePointDelta": -8,
+    "delayedCountDelta": 1
   }
 }
 ```
+
+중첩 객체가 아니라 평평한 필드다.
 
 없는 경우:
 
@@ -433,8 +427,8 @@ OpenAI는 다음을 할 수 없다.
 {
   "workflow": {
     "requested": 2,
-    "approvedUnassigned": 1,
-    "assignedTodo": 1,
+    "acceptedUnassigned": 1,
+    "assignedNotStarted": 1,
     "inProgress": 2,
     "onHold": 1,
     "completed": 5
@@ -450,22 +444,20 @@ OpenAI에는 표시 이름 대신 ref를 전달한다.
 
 ```json
 {
-  "ref": "MEMBER-3",
+  "memberRef": "MEMBER-3",
   "role": "MEMBER",
   "assignedCount": 4,
   "activeCount": 3,
   "completedCount": 1,
   "delayedCount": 1,
-  "dueSoonCount": 2,
-  "calendarConflictCount": 0
+  "onTimeRatePercent": 25,
+  "upcomingCalendarCount": 2
 }
 ```
 
-팀원 추천은 다음 정보가 존재하는 경우만 허용한다.
-
-- activeCount
-- dueSoonCount
-- calendarConflictCount
+팀원 추천은 `activeCount`·`delayedCount`·`upcomingCalendarCount`가 있을 때만 허용한다.
+(`dueSoonCount`·`calendarConflictCount`는 계약에 없다. 마감 임박은 업무 단위 `dueState`,
+일정 충돌은 `calendarConstraints`로 판단한다.)
 
 AI는 개인의 능력·성실성·태도를 평가하지 않는다.
 
@@ -473,9 +465,8 @@ AI는 개인의 능력·성실성·태도를 평가하지 않는다.
 
 ```json
 {
-  "ref": "TASK-104",
+  "taskRef": "TASK-104",
   "safeLabel": "승인 후 담당자가 없는 지연 업무",
-  "category": "QA",
   "priority": "HIGH",
   "status": "TODO",
   "assigneeRef": null,
@@ -489,25 +480,28 @@ AI는 개인의 능력·성실성·태도를 평가하지 않는다.
   "collaboration": {
     "commentCount": 2,
     "unresolvedMentionCount": 1,
-    "linkedResourceCount": 0
+    "resourceLinkCount": 0
   },
   "history": {
-    "lastTransition": "REQUESTED_TO_TODO",
-    "lastTransitionAt": "2026-07-22T11:30:00+09:00",
-    "reopenCount": 0
+    "lastTransitionCode": "REQUESTED_TO_TODO",
+    "holdReasonCategory": "NONE",
+    "reopenedCount": 0
   },
-  "blocker": {
-    "category": "NONE",
-    "hasRawReason": false
-  },
-  "signals": [
+  "calendarEventRefs": ["EVENT-14"],
+  "signalCodes": [
     "APPROVED_UNASSIGNED",
     "OVERDUE",
     "CHECKLIST_NOT_STARTED",
     "RESOURCE_MISSING"
-  ]
+  ],
+  "allowedDecisionOptionCodes": ["ASSIGN_OWNER_AND_SET_DUE"],
+  "allowedExecutionStepCodes": ["ASSIGN_OWNER", "SET_DUE"],
+  "allowedCompletionSignalCodes": ["ASSIGNEE_SET", "DUE_AT_SET"]
 }
 ```
+
+보류 사유는 `history.holdReasonCategory`의 구조화 값이다. 별도 `blocker` 객체는 없고
+자유 입력 사유는 어떤 형태로도 실리지 않는다. `category`(업무 분류)도 계약에 없다.
 
 ### 개인정보 경계
 
@@ -564,15 +558,17 @@ AI는 개인의 능력·성실성·태도를 평가하지 않는다.
 
 ```json
 {
-  "ref": "EVENT-14",
+  "eventRef": "EVENT-14",
   "type": "MEETING",
   "safeLabel": "팀 전체가 참여하는 확정 회의",
   "startAt": "2026-07-31T14:00:00+09:00",
   "endAt": "2026-07-31T16:00:00+09:00",
-  "ownerRef": "MEMBER-1",
-  "linkedTaskRefs": ["TASK-104"]
+  "relatedTaskRefs": ["TASK-104"]
 }
 ```
+
+일정 소유자(`ownerRef`)는 계약에 없다. 팀원별 다가오는 일정 수는
+`members[].upcomingCalendarCount`로 집계해 전달한다.
 
 OpenAI는 `eventRef`를 선택할 수만 있다.
 
@@ -1914,7 +1910,7 @@ curl -X POST "http://localhost:8080/api/v1/groups/7/reports/ai-weekly" \
 
 v7-2 구현은 다음이 모두 참일 때 완료다.
 
-- v7의 4페이지 구조가 유지된다.
+- 4페이지 구조가 유지된다. 페이지 제목의 기간 표현은 실제 기간을 따른다(주간·월간·연간·기간).
 - 페이지 1은 기존 기본 리포트와 동일한 서버 수치를 사용한다.
 - 공식 `com.openai:openai-java`를 `backend/pom.xml`이 지정한 버전으로 사용한다.
 - EOL된 `openai-java-spring-boot-starter`와 직접 `RestClient` 호출을 사용하지 않는다.
@@ -1923,7 +1919,7 @@ v7-2 구현은 다음이 모두 참일 때 완료다.
 - OpenAI 입력에 원문 댓글·설명·이름·업무 제목·일정 제목이 없다.
 - `safeLabel`이 서버 생성 비식별 의미 라벨이며 원본 제목 조각을 포함하지 않는다.
 - 기존 `app.ai-report.*` 설정 키와 환경변수 이름이 유지된다.
-- 다운로드가 기존 `/{reportId}/pdf` endpoint에서 실제 PDF를 반환한다.
+- 다운로드가 `/{reportId}/download`에서 인쇄용 HTML을 반환한다 (D7 2026-08-01 개정).
 - 초안 편집·수동 확정 경로가 제거되고 생성 즉시 FINALIZED가 된다.
 - 기존 AI 리포트 ID 접근이 `410 AI_REPORT_LEGACY_REVISION`을 반환한다.
 - OpenAI 출력은 SDK 역직렬화와 business validation을 통과한다.
@@ -1937,87 +1933,9 @@ v7-2 구현은 다음이 모두 참일 때 완료다.
 - 테스트에서 정상·실패·근거 부족·재생성·다운로드가 검증된다.
 - 사용자 리포트에 개발 기술 용어가 노출되지 않는다.
 
-# 19. 구현 순서
-
-1. `pom.xml`에 `com.openai:openai-java` 추가 (버전은 Maven Central resolution이 성공하는 값)
-2. Maven dependency tree와 Jackson 호환성 확인
-3. JSON Schema와 fixture를 테스트 리소스에 고정
-4. `AiWeeklyReportAnalysisContract`와 contract drift test 구현
-5. `AiWeeklyReportGateway` 포트와 Fake Gateway 구현
-6. Snapshot assembler 구현
-7. bulk evidence query 구현
-8. policy engine으로 risk candidate 생성
-9. server fallback 구현
-10. business validator 구현
-11. `OpenAIClient` Bean과 공식 SDK adapter 구현
-12. revision 저장 구현
-13. generate/read/download API 구현
-14. v7-2 renderer 구현
-15. 통합·회귀·실패 테스트
-16. 실제 API 키로 수동 검증 1건
-
-OpenAI 연결보다 Fallback, Fake Gateway, Validator를 먼저 구현한다. 이 순서이면 API 키가 없어도 v7-2 전체 흐름과 HTML을 검증할 수 있다.
-
-SDK adapter 구현 시 공식 `openai/openai-java`의 `ResponsesStructuredOutputsExample`과 현재 버전 Javadocs를 기준으로 컴파일 타입을 확인한다.
-
-# 20. Agent 실행 지침
-
-```text
-목표:
-WorkTaskFlow main의 현재 기본 리포트 동작을 보존하면서,
-v7-2 그룹 AI 주간 리포트의 snapshot/analysis JSON 계약,
-server fallback, 공식 OpenAI Java SDK 기반 Responses API,
-저장 revision, 4페이지 HTML 다운로드를 구현한다.
-
-컨텍스트:
-- backend/pom.xml
-- backend/src/main/java/com/teamproject/report/application/ReportDocumentService.java
-- backend/src/main/java/com/teamproject/report/presentation/ReportController.java
-- backend/src/main/java/com/teamproject/dashboard/application/dto/DashboardDtos.java
-- backend/src/main/java/com/teamproject/task/application/dto/TaskDtos.java
-- backend/src/main/java/com/teamproject/calendar/application/dto/CalendarDtos.java
-- ai-weekly-report-snapshot-v1.schema.json
-- ai-weekly-report-analysis-v1.schema.json
-- WorkTaskFlow_v7-2_JSON계약_구현명세_공식OpenAIJavaSDK수정본.md
-
-도구:
-- GitHub MCP로 현재 repo 파일과 member1 브랜치 상태를 먼저 확인한다.
-- Context7 MCP에서 `openai/openai-java`의 Responses API와
-  `ResponsesStructuredOutputsExample`을 확인한다.
-- Maven CLI로 의존성·테스트·실행을 검증한다.
-
-필수 CLI:
-mvn -f backend/pom.xml dependency:tree -Dincludes=com.openai
-mvn -f backend/pom.xml dependency:tree -Dincludes=com.fasterxml.jackson.core
-mvn -f backend/pom.xml test
-git diff --check
-
-제약:
-- main 브랜치 직접 작업 금지. 사용자에게 허용된 member1 브랜치만 사용.
-- 기존 /reports/download 응답과 기본 HTML 스타일을 변경하지 않는다.
-- 공식 `com.openai:openai-java`를 사용한다. 버전은 `backend/pom.xml`이 정본이며 임의로 올리지 않는다.
-- `openai-java-spring-boot-starter` 사용 금지.
-- OpenAI 직접 HTTP `RestClient` 구현 금지.
-- application/domain 계층에서 `com.openai.*` import 금지.
-- `OpenAIClient` singleton Bean을 infrastructure에서 직접 등록한다.
-- Responses API + Java 타입 기반 Structured Outputs를 사용한다.
-- 먼저 테스트를 추가하고 기존 출력 회귀를 고정한다.
-- 원문 댓글, 업무 설명, 이름, 첨부 본문을 OpenAI에 보내지 않는다.
-- OpenAI 출력은 렌더링 전에 SDK 구조 역직렬화와 business validation을 통과해야 한다.
-- OpenAI 실패 시 SERVER_FALLBACK으로 FINALIZED한다.
-- 업무 상태 변경 side effect를 만들지 않는다.
-- SDK 예외 전문과 raw OpenAI response를 로그에 남기지 않는다.
-
-완료:
-- mvn -f backend/pom.xml test 통과
-- dependency tree에서 openai-java가 `backend/pom.xml` 지정 버전으로 하나만 확인
-- EOL Starter 의존성 없음
-- 정상/timeout/invalid ref/no baseline/duplicate request/download 테스트 통과
-- 동일 snapshot 재요청 시 OpenAI Gateway 호출 0회
-- v7-2 HTML 4페이지 정보 구조 확인
-- git diff --check 통과
-- 변경 파일, 테스트 결과, SDK 버전, 남은 위험을 보고한다.
-```
+> §19 구현 순서와 §20 Agent 실행 지침은 2026-08-02에 제거했다. 구현이 끝난 뒤에는 계약이
+> 아니라 작업 지시였고, 브랜치 규칙·도구 사용법은 `AGENTS.md`와 중복이었다. 참조하던
+> `WorkTaskFlow_v7-2_..._수정본.md`는 저장소에 없다. 진행 기록은 ExecPlan에 있다.
 
 # 21. 확정된 제품 결정
 
@@ -2057,7 +1975,7 @@ MVP: tasks.blocker_type(V32 컬럼)을 history.holdReasonCategory enum으로 매
 
 # 22. 최종 정의
 
-> v7-2 AI 주간 리포트는 서버가 확정한 그룹 업무 사실에서 최대 3개의 회의 안건을 선택하고, 각 안건을 근거 업무·관찰된 영향·팀장 결정·실행 단계·완료 조건으로 연결하는 4페이지 주간 리포트다.
+> v7-2 AI 리포트는 서버가 확정한 그룹 업무 사실에서 최대 3개의 회의 안건을 선택하고, 각 안건을 근거 업무·관찰된 영향·팀장 결정·실행 단계·완료 조건으로 연결하는 4페이지 리포트다. 기간은 주간에 한정되지 않는다(D3).
 
 OpenAI API의 역할은 문장을 화려하게 만드는 것이 아니다.
 
