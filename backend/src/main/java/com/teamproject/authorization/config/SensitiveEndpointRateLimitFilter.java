@@ -13,10 +13,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 @Component
 public class SensitiveEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final Logger audit = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private static final Pattern AI_REPORT_GENERATION =
+            Pattern.compile("/api/v1/groups/\\d+/reports/ai-weekly");
     private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
     private final boolean enabled;
     private final int attempts;
@@ -43,7 +46,10 @@ public class SensitiveEndpointRateLimitFilter extends OncePerRequestFilter {
                 && !path.equals("/api/v1/groups/join")
                 && !path.startsWith("/api/v1/payments")
                 && !path.startsWith("/api/v1/auth/password-resets")
-                && !path.startsWith("/api/v1/auth/email-verifications");
+                && !path.startsWith("/api/v1/auth/email-verifications")
+                // AI 리포트 생성은 한 번이 유료 provider 호출이다. 서버 상한은 (그룹, 기간,
+                // 언어)당 3회뿐이라 과거 기간을 순회하면 호출 수에 제한이 없다.
+                && !AI_REPORT_GENERATION.matcher(path).matches();
     }
 
     @Override
