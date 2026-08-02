@@ -50,7 +50,9 @@ export const reportApi = {
   // 기본 리포트와 같다. 서버가 완성된 HTML을 주고 PDF 저장은 브라우저 인쇄로 한다.
   downloadAiWeeklyDocument: async (groupId: number, reportId: number, from: string, revision: number) => {
     const result = await requestBlob(`/groups/${groupId}/reports/ai-weekly/${reportId}/download`,
-      `toesa-ai-weekly-${groupId}-${from}-r${revision}.html`);
+      // 실제 파일명은 서버가 Content-Disposition으로 준다(기간 종류에 따라 weekly/monthly/yearly).
+      // 이 값은 헤더를 못 읽었을 때만 쓰는 대비책이다.
+      `toesa-ai-report-${groupId}-${from}-r${revision}.html`);
     saveBlob(result.blob, result.filename);
   },
 };

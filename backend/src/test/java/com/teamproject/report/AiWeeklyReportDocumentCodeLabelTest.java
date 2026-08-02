@@ -125,4 +125,42 @@ class AiWeeklyReportDocumentCodeLabelTest {
         return service.generate(view, "퇴사 팀", "Asia/Seoul", language).html();
     }
 
+
+    /**
+     * 기간 제약 완화 뒤로 주간이 아닌 기간도 생성되는데 문구가 "주간"으로 굳어 있었다.
+     * 지난달 리포트 제목이 "주간 업무 리포트"로, 파일명이 ai-weekly-로 나갔다.
+     */
+    @Test
+    @DisplayName("문서 문구와 파일명이 실제 기간 종류를 따른다")
+    void namesTheDocumentAfterTheActualPeriod() {
+        var week = document(LocalDate.of(2026, 7, 20), LocalDate.of(2026, 7, 27));
+        assertThat(week.filename()).contains("toesa-ai-weekly-");
+        assertThat(week.html()).contains("주간 업무 리포트").contains("이번 주 핵심");
+
+        var month = document(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 7, 1));
+        assertThat(month.filename()).contains("toesa-ai-monthly-");
+        assertThat(month.html()).contains("월간 업무 리포트").contains("이번 달 핵심")
+                .doesNotContain("주간 업무 리포트");
+
+        var year = document(LocalDate.of(2025, 1, 1), LocalDate.of(2026, 1, 1));
+        assertThat(year.filename()).contains("toesa-ai-yearly-");
+        assertThat(year.html()).contains("연간 업무 리포트").contains("올해 핵심");
+
+        // 달 기준 5주차처럼 어느 단위에도 안 맞는 기간은 중립적으로 쓴다.
+        var partial = document(LocalDate.of(2026, 7, 29), LocalDate.of(2026, 8, 1));
+        assertThat(partial.filename()).contains("toesa-ai-period-");
+        assertThat(partial.html()).contains("기간 업무 리포트").contains("이번 기간 핵심");
+    }
+
+    private com.teamproject.report.application.ReportDocumentService.ReportDocument document(
+            LocalDate from, LocalDate toExclusive) {
+        AiWeeklyReportView view = new AiWeeklyReportView(1L, 7L, from, toExclusive, 1,
+                "FINALIZED", "OPENAI", LocalDateTime.of(2026, 7, 27, 9, 0), "/download",
+                null, null, List.of(), List.of(),
+                new SnapshotMetricsView(1, 0, null, 0, null),
+                new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
+                new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
+                List.of(), List.of(), List.of());
+        return service.generate(view, "퇴사 팀", "Asia/Seoul", "KO");
+    }
 }

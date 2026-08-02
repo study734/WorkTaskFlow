@@ -37,7 +37,54 @@ public class AiWeeklyReportDocumentService {
     private static final int MAX_TABLE_ROWS = 15;
 
     /** 문서 한 벌을 만드는 데 필요한 값. 메서드마다 같은 인자를 끌고 다니지 않으려고 묶었다. */
-    private record Doc(AiWeeklyReportView report, String groupName, ZoneId zone, boolean ko) {}
+    private record Doc(AiWeeklyReportView report, String groupName, ZoneId zone, boolean ko) {
+        /** 문서 곳곳의 "주간"·"이번 주" 문구가 실제 기간을 따라가게 한다. */
+        PeriodKind kind() { return PeriodKind.of(report.from(), report.toExclusive()); }
+    }
+
+    /**
+     * 기간 제약을 완화한 뒤로 주간이 아닌 기간도 생성된다(달 기준 주차, 월간, 연간).
+     * 문구가 "주간"으로 굳어 있으면 지난달 리포트 제목이 "주간 업무 리포트"로 나간다.
+     */
+    private enum PeriodKind {
+        WEEK, MONTH, YEAR, RANGE;
+
+        static PeriodKind of(LocalDate from, LocalDate toExclusive) {
+            if (from == null || toExclusive == null) return RANGE;
+            if (from.getDayOfYear() == 1 && toExclusive.equals(from.plusYears(1))) return YEAR;
+            if (from.getDayOfMonth() == 1 && toExclusive.equals(from.plusMonths(1))) return MONTH;
+            if (toExclusive.equals(from.plusDays(7))) return WEEK;
+            return RANGE;
+        }
+
+        String noun(boolean ko) {
+            return switch (this) {
+                case WEEK -> ko ? "주간" : "Weekly";
+                case MONTH -> ko ? "월간" : "Monthly";
+                case YEAR -> ko ? "연간" : "Yearly";
+                case RANGE -> ko ? "기간" : "Period";
+            };
+        }
+
+        /** "이번 주 핵심"처럼 기간을 가리키는 말. 주간이 아니면 중립적으로 쓴다. */
+        String thisPeriod(boolean ko) {
+            return switch (this) {
+                case WEEK -> ko ? "이번 주" : "This week";
+                case MONTH -> ko ? "이번 달" : "This month";
+                case YEAR -> ko ? "올해" : "This year";
+                case RANGE -> ko ? "이번 기간" : "This period";
+            };
+        }
+
+        String slug() {
+            return switch (this) {
+                case WEEK -> "weekly";
+                case MONTH -> "monthly";
+                case YEAR -> "yearly";
+                case RANGE -> "period";
+            };
+        }
+    }
 
     public ReportDocumentService.ReportDocument generate(AiWeeklyReportView report, String groupName,
             String timezone, String language) {
@@ -46,16 +93,16 @@ public class AiWeeklyReportDocumentService {
         String html = render(doc);
         return new ReportDocumentService.ReportDocument(
                 html.getBytes(StandardCharsets.UTF_8),
-                "toesa-ai-weekly-" + report.groupId() + "-" + report.from() + "-r" + report.revision()
-                        + "-" + (ko ? "ko" : "en") + ".html",
+                "toesa-ai-" + doc.kind().slug() + "-" + report.groupId() + "-" + report.from()
+                        + "-r" + report.revision() + "-" + (ko ? "ko" : "en") + ".html",
                 subject(doc),
                 html);
     }
 
     private String subject(Doc doc) {
         return doc.ko
-                ? "[퇴사] " + doc.groupName + " AI 주간 리포트 (" + period(doc.report) + ")"
-                : "[toesa] " + doc.groupName + " AI Weekly Report (" + period(doc.report) + ")";
+                ? "[퇴사] " + doc.groupName + " AI " + doc.kind().noun(true) + " 리포트 (" + period(doc.report) + ")"
+                : "[toesa] " + doc.groupName + " AI " + doc.kind().noun(false) + " Report (" + period(doc.report) + ")";
     }
 
     private String render(Doc doc) {
@@ -66,7 +113,7 @@ public class AiWeeklyReportDocumentService {
                 <body><article class="report">
                 <header class="report-header">
                   <div class="brand"><span class="brand-mark">✓</span> %s</div>
-                  <p class="eyebrow">AI WEEKLY MEETING REPORT</p>
+                  <p class="eyebrow">AI MEETING REPORT</p>
                   <h1>%s</h1>
                   <div class="meta"><span>%s %s</span><span>v7-2 · R%d · %s</span></div>
                 </header>
@@ -77,7 +124,8 @@ public class AiWeeklyReportDocumentService {
                 escape(subject(doc)),
                 styles(),
                 doc.ko ? "TOESA · 퇴사" : "TOESA",
-                escape(doc.groupName + (doc.ko ? " 주간 업무 리포트" : " Weekly Work Report")),
+                escape(doc.groupName + (doc.ko ? " " + doc.kind().noun(true) + " 업무 리포트"
+                        : " " + doc.kind().noun(false) + " Work Report")),
                 doc.ko ? "보고 기간" : "Reporting period",
                 period(doc.report),
                 doc.report.revision(),
@@ -223,7 +271,7 @@ public class AiWeeklyReportDocumentService {
         return lines;
     }
 
-    // ---------- PAGE 2 : 이번 주 핵심 ----------
+    // ---------- PAGE 2 : 기간 핵심 ----------
 
     private String pageTwo(Doc doc) {
         return """
@@ -250,14 +298,14 @@ public class AiWeeklyReportDocumentService {
                   <div class="report-footer"><span>%s</span><strong>TOESA · MEETING BRIEF</strong></div>
                 </section>
                 """.formatted(
-                doc.ko ? "이번 주 핵심" : "This period at the top",
+                doc.ko ? doc.kind().thisPeriod(true) + " 핵심" : doc.kind().thisPeriod(false) + " at the top",
                 doc.ko ? "회의 시작 전에 반드시 공유할 판단, 흐름, 성과, 위험만 남겼습니다."
                         : "Only the judgment, flow, achievement, and risks to share before the meeting.",
                 hero(doc),
                 doc.ko ? "업무 흐름" : "Work flow",
                 doc.ko ? "요청 → 승인 → 담당 → 진행 → 완료" : "Requested → assigned → in progress → done",
                 flow(doc),
-                doc.ko ? "이번 주 성과" : "Achievement",
+                doc.ko ? doc.kind().thisPeriod(true) + " 성과" : "Achievement",
                 doc.ko ? "완료 업무의 결과를 한 문장으로 압축" : "Completed work in a single sentence",
                 achievement(doc),
                 doc.ko ? "회의 전 확인할 위험" : "Risks to review before the meeting",
@@ -337,7 +385,7 @@ public class AiWeeklyReportDocumentService {
 
     private String achievement(Doc doc) {
         AchievementView value = doc.report.achievement();
-        String label = doc.ko ? "이번 주 성과" : "ACHIEVEMENT";
+        String label = doc.ko ? doc.kind().thisPeriod(true) + " 성과" : "ACHIEVEMENT";
         if (value == null || !"AVAILABLE".equals(value.status())) {
             return "<div class=\"success-card\"><b>" + label + "</b><div><strong>"
                     + (doc.ko ? "완료 근거가 확인된 성과가 없습니다." : "No achievement with confirmed evidence.")
