@@ -155,7 +155,7 @@ public class AiWeeklyReportDocumentService {
                     .append("\">").append(escape(statusLabel(doc, task))).append("</span></td><td>")
                     .append(escape(task.assigneeName() == null
                             ? (doc.ko ? "미지정" : "Unassigned") : task.assigneeName()))
-                    .append("</td><td class=\"due\">").append(escape(monthDay(task.dueAt(), doc.zone)))
+                    .append("</td><td class=\"due\">").append(escape(dueText(task.dueAt(), doc.zone)))
                     .append("</td></tr>");
         }
         if (tasks.isEmpty()) {
@@ -655,7 +655,15 @@ public class AiWeeklyReportDocumentService {
         return parts.isEmpty() ? "-" : String.join(", ", parts);
     }
 
+    /** 상태만 쓰면 "언제까지"가 문서에 없다. 회의에서 바로 필요한 값이라 마감을 함께 적는다. */
     private String dueState(Doc doc, SnapshotTaskView task) {
+        String state = dueStateLabel(doc, task);
+        if (task == null || task.dueAt() == null) return state;
+        String due = dueText(task.dueAt(), doc.zone);
+        return "-".equals(due) ? state : state + " · " + due;
+    }
+
+    private String dueStateLabel(Doc doc, SnapshotTaskView task) {
         if (task == null) return "-";
         return switch (orDash(task.dueState())) {
             case "OVERDUE" -> doc.ko ? "마감 초과 · 새 기한 결정 필요" : "Overdue · new due date needed";
@@ -796,10 +804,18 @@ public class AiWeeklyReportDocumentService {
         return task.status().toLowerCase(Locale.ROOT).replace('_', '-');
     }
 
-    /** Snapshot의 시각은 UTC ISO 문자열이다. 화면에는 그룹 시간대 날짜로 보여 준다. */
-    private String monthDay(String isoInstant, ZoneId zone) {
+    /**
+     * Snapshot의 시각은 UTC ISO 문자열이고 화면에는 그룹 시간대로 보여 준다.
+     * 마감은 날짜만으로는 부족하다 — 같은 날 오전과 마감 직전은 회의에서 다른 얘기다.
+     * 자정은 "시각 미지정"의 저장 형태라 날짜만 적는다. 기본 리포트가 그 경우에도 00:00을
+     * 찍는 것과 다른데, 정보가 늘지 않는 표기라 뺀다.
+     */
+    private String dueText(String isoInstant, ZoneId zone) {
         Instant instant = instant(isoInstant);
-        return instant == null ? "-" : MONTH_DAY.format(instant.atZone(zone));
+        if (instant == null) return "-";
+        var zoned = instant.atZone(zone);
+        return (zoned.getHour() == 0 && zoned.getMinute() == 0)
+                ? MONTH_DAY.format(zoned) : DAY_TIME.format(zoned);
     }
 
     private String dayTime(String isoInstant, ZoneId zone) {

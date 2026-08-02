@@ -181,6 +181,37 @@ class AiWeeklyReportDocumentCodeLabelTest {
     }
 
     /**
+     * 마감이 날짜까지만 찍혀 "오늘 오전"과 "오늘 마감 직전"이 같아 보였다. 기본 리포트는 시각을
+     * 찍는데 AI 리포트만 빠져 있었다. 자정은 시각 미지정의 저장 형태라 날짜만 적는다.
+     */
+    @Test
+    @DisplayName("마감 시각이 있으면 시각까지 적고 자정이면 날짜만 적는다")
+    void printsTheDueTimeWhenItCarriesInformation() {
+        // 09:00 KST = 전날 00:00 UTC. 그룹 시간대로 환산해서 판정해야 한다.
+        assertThat(renderWithDue("2026-07-24T09:00:00Z")).contains("07-24 18:00");
+        assertThat(renderWithDue("2026-07-23T15:00:00Z"))
+                .contains("07-24").doesNotContain("07-24 00:00");
+    }
+
+    private String renderWithDue(String dueAtUtc) {
+        SnapshotTaskView task = new SnapshotTaskView("TASK-1", "결제 실패 로그 확인", "라벨",
+                "IN_PROGRESS", "NORMAL", null, "개발자", null, dueAtUtc, null, "OVERDUE",
+                null, null, null, List.of());
+        IssueView issue = new IssueView("P1", "RISK-001", "HIGH", "제목", "결제 실패 로그 확인",
+                "영향", "MEDIUM", List.of("TASK-1"), List.of("결제 실패 로그 확인"),
+                List.of("OVERDUE"), List.of(), "통합 판단", "필요 결정", null);
+        AiWeeklyReportView view = new AiWeeklyReportView(1L, 7L,
+                LocalDate.of(2026, 7, 20), LocalDate.of(2026, 7, 27), 1, "FINALIZED", "OPENAI",
+                LocalDateTime.of(2026, 7, 27, 9, 0), "/download",
+                null, null, List.of(issue), List.of(),
+                new SnapshotMetricsView(1, 0, null, 1, null),
+                new SnapshotComparisonView("NO_BASELINE", null, null, null, null, null, null),
+                new SnapshotWorkflowView(0, 0, 0, 1, 0, 0),
+                List.of(task), List.of(), List.of(), List.of());
+        return service.generate(view, "퇴사 팀", "Asia/Seoul", "KO").html();
+    }
+
+    /**
      * 업무표 캡션이 잘린 배열을 모수로 써서, 같은 페이지 KPI가 105건인데 표는 "기간 업무
      * 100건 중 15건 표시"라고 말했다. 한 페이지가 두 개의 전체 수를 말하는 셈이다.
      */
