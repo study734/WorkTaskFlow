@@ -35,7 +35,12 @@ public class AiWeeklyReportDocumentService {
      * A4 인쇄 1장에 들어가는 표 행 수. 인쇄 영역 1043px에서 헤더와 지표·요약이 834px를 쓰고,
      * 행 높이가 29px이라 17행이 한계다. 넘기면 1장이 밀려 전체가 5장이 된다.
      */
-    private static final int MAX_TABLE_ROWS = 15;
+    /**
+     * 1페이지가 A4 한 장에 들어가야 한다. 15행이면 여유가 14px뿐이라, 그룹 이름이 두 줄로
+     * 감기거나(흔하다) 요약이 한 줄 늘면 곧바로 5장이 된다. 한 행이 29px이므로 12행이면
+     * 87px을 돌려받아 두 경우가 겹쳐도 버틴다. 브라우저 인쇄 폭(189mm)에서 실측했다.
+     */
+    private static final int MAX_TABLE_ROWS = 12;
 
     /** 문서 한 벌을 만드는 데 필요한 값. 메서드마다 같은 인자를 끌고 다니지 않으려고 묶었다. */
     private record Doc(AiWeeklyReportView report, String groupName, ZoneId zone, boolean ko) {
