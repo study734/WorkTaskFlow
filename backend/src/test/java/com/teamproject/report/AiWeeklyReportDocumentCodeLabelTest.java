@@ -181,6 +181,23 @@ class AiWeeklyReportDocumentCodeLabelTest {
     }
 
     /**
+     * 회의록 표준은 결정마다 담당과 기한을 사람이 적게 둔다. 이 문서는 AI 권고까지만 찍혀
+     * 있어 종이로 뽑으면 적을 자리가 없었다. 화면에는 빈 칸이 필요 없으므로 인쇄에만 띄운다.
+     */
+    @Test
+    @DisplayName("결정마다 인쇄본에만 나오는 기록란이 붙는다")
+    void printsARecordingBlockOnEveryDecision() {
+        String html = render(List.of("OVERDUE"), List.of("ASSIGNEE_SET"), "KO");
+
+        assertThat(html).contains("회의 기록").contains("결정 &#9744; 승인");
+        // 화면에서는 숨고 인쇄에서만 뜬다. 두 규칙이 다 있어야 한다.
+        assertThat(html).contains(".record{display:none}").contains(".record{display:block");
+
+        assertThat(render(List.of("OVERDUE"), List.of("ASSIGNEE_SET"), "EN"))
+                .contains("Recorded in the meeting").contains("Owner");
+    }
+
+    /**
      * 마감이 날짜까지만 찍혀 "오늘 오전"과 "오늘 마감 직전"이 같아 보였다. 기본 리포트는 시각을
      * 찍는데 AI 리포트만 빠져 있었다. 자정은 시각 미지정의 저장 형태라 날짜만 적는다.
      */

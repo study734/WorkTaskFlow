@@ -583,7 +583,8 @@ public class AiWeeklyReportDocumentService {
                     .append(cell(doc.ko ? "판단 근거" : "Evidence", joinCodes(doc, issue.evidenceCodes())))
                     .append("</div><div class=\"completion\"><b>")
                     .append(doc.ko ? "완료 조건" : "Completion criteria").append("</b> ")
-                    .append(escape(completion(doc, decision))).append("</div></article>");
+                    .append(escape(completion(doc, decision))).append("</div>")
+                    .append(record(doc)).append("</article>");
         }
         if (decisions == 0) {
             cards.append(note(doc.ko ? "팀장이 결정할 사항이 없습니다." : "No leader decision is required."));
@@ -668,6 +669,23 @@ public class AiWeeklyReportDocumentService {
             }
         }
         return parts.isEmpty() ? "-" : String.join(", ", parts);
+    }
+
+    /**
+     * 인쇄본에만 나오는 기록란. 회의록 표준은 결정마다 담당과 기한을 사람이 적게 두는데,
+     * 이 문서는 AI 권고까지만 찍혀 있어 종이로 뽑으면 여백에 갈겨쓰게 된다.
+     *
+     * <p>화면에서는 숨긴다. 화면에는 눌러서 쓸 수 없는 빈 칸이 필요 없다.
+     */
+    private String record(Doc doc) {
+        return "<div class=\"record\"><b>" + (doc.ko ? "회의 기록" : "Recorded in the meeting")
+                + "</b><div class=\"record-row\"><span>"
+                + (doc.ko ? "결정 &#9744; 승인 &#9744; 보류 &#9744; 변경"
+                          : "Decision &#9744; approve &#9744; hold &#9744; change")
+                + "</span><span class=\"record-line\"></span></div>"
+                + "<div class=\"record-row\"><span>" + (doc.ko ? "담당" : "Owner")
+                + "</span><span class=\"record-line\"></span><span>"
+                + (doc.ko ? "기한" : "Due") + "</span><span class=\"record-line\"></span></div></div>";
     }
 
     /** 회의에서 먼저 봐야 하는 순서. 지난 것, 곧 올 것, 멈춘 것, 나머지, 끝난 것. */
@@ -934,8 +952,9 @@ public class AiWeeklyReportDocumentService {
                 .issue-list{display:grid;gap:9px}.issue{padding:12px 13px;border:1px solid #e8e4ee;border-radius:14px;background:#fcfbfd}.issue.risk{border-color:#f1ded7;background:#fff9f7}.issue-head{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start}.issue-head h3{margin:0;color:#332e3c;font-size:11px}.issue-head small{color:#7c7482;font-size:6.8px;font-weight:800;letter-spacing:.04em}.issue-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 11px;margin-top:8px}.issue-grid div{border-top:1px solid #eeeaf0;padding-top:4px}.issue-grid b{display:block;color:#8a8490;font-size:6.5px}.issue-grid span{display:block;margin-top:2px;color:#514b58;font-size:7.4px;font-weight:650}.issue-action{margin-top:7px;padding:7px 9px;border-radius:10px;background:#fff;color:#514b58;font-size:7.3px}.issue-action b{color:#6658ad}
                 .timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.timeline-item{padding:9px 10px;border:1px solid #e8e4ee;border-radius:12px;background:#fcfbfd}.timeline-item time{display:block;color:#6658ad;font-size:7px;font-weight:800}.timeline-item strong{display:block;margin-top:4px;color:#3d3745;font-size:8.5px}.timeline-item p{margin:3px 0 0;color:#756e7a;font-size:7px}
                 .decision-list{display:grid;gap:9px}.decision-card{padding:12px 13px;border:1px solid #e6e0f2;border-radius:15px;background:#faf8ff}.decision-top{display:grid;grid-template-columns:34px 1fr auto;gap:9px;align-items:start}.priority{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;color:#fff;background:#6657bd;font-size:9px;font-weight:800}.decision-card h3{margin:0;color:#332e3c;font-size:10.8px}.decision-question{margin:3px 0 0;color:#6658ad;font-size:8px;font-weight:700}.deadline{padding:3px 6px;border-radius:99px;color:#8a681c;background:#fff2ce;font-size:6.8px;font-weight:800;white-space:nowrap}.decision-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px 10px;margin-top:8px}.decision-grid div{border-top:1px solid #e9e4ef;padding-top:4px}.decision-grid b{display:block;color:#8a8490;font-size:6.4px}.decision-grid span{display:block;margin-top:2px;color:#514b58;font-size:7.2px;font-weight:650}.completion{margin-top:7px;padding:7px 9px;border-radius:10px;color:#514b58;background:#fff;font-size:7.2px}.completion b{color:#6658ad}
+                .record{display:none}
                 .final-strip{display:grid;grid-template-columns:1.15fr .85fr;gap:8px;margin-top:12px}.ref-box,.trust-box{padding:9px 11px;border:1px solid #e8e4ee;border-radius:12px;background:#fcfbfd;color:#5f5967;font-size:7.2px}.ref-box strong,.trust-box strong{color:#6658ad}.trust-box{background:#faf8ff;border-color:#e6e0f2}.limit{margin-top:7px;padding-top:7px;border-top:1px solid #e8e4ee;color:#7b7480;font-size:6.7px}.report-footer{display:flex;justify-content:space-between;gap:16px;margin-top:12px;padding-top:11px;border-top:1px solid #ece8ee;color:#8a8490;font-size:7px}.report-footer strong{color:#655c73;white-space:nowrap}
-                @media print{body{background:#fff}.report{width:100%;margin:0;border:0;border-radius:0;box-shadow:none}.report-header{padding:20px 23px}main{padding:18px 22px 21px}.page{break-before:page}.page.first{break-before:auto}tr,.signal,.issue,.decision-card,.timeline-item{break-inside:avoid}thead{display:table-header-group}}
+                @media print{body{background:#fff}.record{display:block;margin-top:7px;padding:7px 9px;border:1px dashed #c9c2d8;border-radius:10px}.record b{display:block;margin-bottom:5px;color:#6658ad;font-size:6.4px;letter-spacing:.05em}.record-row{display:flex;align-items:flex-end;gap:7px;margin-top:6px;color:#514b58;font-size:7.2px}.record-line{flex:1;border-bottom:1px solid #b8b1c6;height:11px}.report{width:100%;margin:0;border:0;border-radius:0;box-shadow:none}.report-header{padding:20px 23px}main{padding:18px 22px 21px}.page{break-before:page}.page.first{break-before:auto}tr,.signal,.issue,.decision-card,.timeline-item{break-inside:avoid}thead{display:table-header-group}}
                 @media(max-width:700px){.report{width:100%;margin:0;border:0;border-radius:0}.metrics{grid-template-columns:repeat(2,1fr)}.progress-grid,.flow,.signal-grid,.timeline,.issue-grid,.decision-grid,.final-strip{grid-template-columns:1fr}.table-wrap{overflow-x:auto}table{min-width:560px}}
                 """;
     }
