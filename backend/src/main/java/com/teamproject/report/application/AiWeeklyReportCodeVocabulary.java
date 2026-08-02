@@ -78,6 +78,15 @@ final class AiWeeklyReportCodeVocabulary {
         put("ON_TIME_RATE_DELTA", "기한 준수율 증감", "change in on-time rate");
         put("DELAYED_COUNT_DELTA", "지연 업무 수 증감", "change in delayed count");
 
+        // 역할 enum 6개. 문서 렌더러의 roleLabel과 값이 겹치지만 register가 다르다 — 구조화
+        // 필드는 "Leader"처럼 이름으로 쓰고, 산문은 "the leader"처럼 문장으로 읽혀야 한다.
+        put("LEADER", "팀장", "the leader");
+        put("GROUP_ADMIN", "그룹 관리자", "the group admin");
+        put("SELECTED_MEMBER", "지정 팀원", "the selected member");
+        put("CURRENT_ASSIGNEE", "현재 담당자", "the current assignee");
+        put("REQUESTER", "요청자", "the requester");
+        put("TEAM", "팀 전체", "the team");
+
         // 프롬프트가 쓰는 내부 필드 이름. 모델이 문장에 그대로 옮겨 적는다.
         put("riskCandidates", "위험 후보", "risk candidates");
         put("missingEvidence", "부족한 근거", "missing evidence");
@@ -129,16 +138,26 @@ final class AiWeeklyReportCodeVocabulary {
     }
 
     /**
-     * 앞말의 받침에 맞는 조사를 고른다. 마지막 글자가 한글 음절이 아니면(영문 제목 등)
-     * 규칙을 세울 수 없으므로 원문을 그대로 둔다는 뜻으로 null을 준다.
+     * 앞말의 받침에 맞는 조사를 고른다. 한글 음절과 숫자를 판정하고, 영문 제목처럼 규칙을
+     * 세울 수 없는 끝글자는 원문을 그대로 둔다는 뜻으로 null을 준다.
      */
     static String correctJosa(String josa, String precedingWord) {
         if (precedingWord == null || precedingWord.isEmpty()) return null;
         char last = precedingWord.charAt(precedingWord.length() - 1);
-        if (last < 0xAC00 || last > 0xD7A3) return null;
-        int jongseong = (last - 0xAC00) % 28;
-        boolean batchim = jongseong != 0;
-        boolean rieul = jongseong == 8;
+        boolean batchim;
+        boolean rieul;
+        if (last >= '0' && last <= '9') {
+            // 숫자로 끝나는 제목("대량 업무 9")은 읽는 소리로 판정한다. 한글 음절이 아니라고
+            // 넘기면 모델이 붙인 조사가 그대로 남아 "대량 업무 9이"가 된다. 실제 문서에서 봤다.
+            batchim = "013678".indexOf(last) >= 0;   // 영 일 삼 육 칠 팔
+            rieul = "178".indexOf(last) >= 0;        // 일 칠 팔
+        } else if (last >= 0xAC00 && last <= 0xD7A3) {
+            int jongseong = (last - 0xAC00) % 28;
+            batchim = jongseong != 0;
+            rieul = jongseong == 8;
+        } else {
+            return null;
+        }
         return switch (josa) {
             case "은", "는" -> batchim ? "은" : "는";
             case "이", "가" -> batchim ? "이" : "가";

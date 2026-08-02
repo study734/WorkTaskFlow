@@ -286,6 +286,35 @@ class AiWeeklyReportViewProjectorTest {
     }
 
     /**
+     * 실제 시연 문서에서 남은 두 가지. 역할 enum은 사전에 없어 "LEADER가 결정해야 합니다"가
+     * 그대로 실렸고, 숫자로 끝나는 제목은 조사 교정에서 빠져 "대량 업무 9이"가 됐다.
+     */
+    @Test
+    @DisplayName("역할 코드를 바꾸고 숫자로 끝나는 제목의 조사도 다시 고른다")
+    void replacesRoleCodesAndFixesParticlesAfterDigits() {
+        Fixture fixture = fixture();
+        Task numbered = task(fixture, "대량 업무 9", Task.Status.TODO, null);
+        flush();
+
+        String analysisJson = """
+                {"schemaVersion":"ai-weekly-report-analysis.v1","analysisStatus":"NORMAL",
+                 "executiveJudgment":{"headline":"TASK-%1$d이 기한 내 완료되었습니다.",
+                 "interpretation":"LEADER가 범위 연기 여부를 결정하고 CURRENT_ASSIGNEE가 기한을 설정해야 하며 TEAM이 담당자를 재배분합니다.",
+                 "metricRefs":["COMPLETION_RATE"],"evidenceTaskRefs":[],
+                 "confidence":"MEDIUM","missingEvidence":[]}}
+                """.formatted(numbered.getId());
+
+        AiWeeklyReportView view = projector.project(revision(fixture,
+                snapshotWith(fixture, numbered), analysisJson, "OPENAI"));
+
+        // "9"는 "구"로 읽어 받침이 없다. 모델이 붙인 "이"를 "가"로 바꿔야 한다.
+        assertThat(view.executiveJudgment().headline())
+                .isEqualTo("대량 업무 9가 기한 내 완료되었습니다.");
+        assertThat(view.executiveJudgment().interpretation())
+                .isEqualTo("팀장이 범위 연기 여부를 결정하고 현재 담당자가 기한을 설정해야 하며 팀 전체가 담당자를 재배분합니다.");
+    }
+
+    /**
      * 모델은 ref 발음에 맞춰 조사를 붙인다("TASK-5은"). 제목으로 바꾸면 받침이 달라져
      * "결제 실패 로그 확인은"이 "...정리은"처럼 어긋난다. 실제 문서에서 관측된 증상이다.
      */
