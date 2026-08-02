@@ -52,6 +52,12 @@ public class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
             log.warn("OpenAI model is missing");
             throw new OpenAiReportUnavailableException("OpenAI model is missing");
         }
+        // 키 없이 켜져 있으면 placeholder 키로 호출해 401을 받을 때까지 기다린다(최대 45초).
+        // 결과는 어차피 fallback이므로 기다릴 이유가 없다.
+        if (!properties.hasApiKey()) {
+            log.warn("OpenAI API key is missing");
+            throw new OpenAiReportUnavailableException("OpenAI API key is missing");
+        }
 
         String snapshotJson;
         try {

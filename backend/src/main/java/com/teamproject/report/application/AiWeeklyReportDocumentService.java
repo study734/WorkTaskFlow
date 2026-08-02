@@ -163,11 +163,15 @@ public class AiWeeklyReportDocumentService {
                     .append(doc.ko ? "해당 기간에 집계된 업무가 없습니다." : "No tasks were recorded in this period.")
                     .append("</td></tr>");
         }
+        // 모수는 tasks가 아니라 확정 지표다. tasks는 Snapshot 상한(100건)에서 잘려 있어
+        // 그대로 쓰면 같은 페이지 KPI가 105건인데 표는 "기간 업무 100건"이라고 말한다.
+        // 지표가 없는 저장본은 예전처럼 표에 실린 수를 쓴다.
+        long tableTotal = metrics == null ? tasks.size() : total;
         String tableNote = tasks.size() > MAX_TABLE_ROWS
                 ? (doc.ko
-                        ? "기간 업무 " + tasks.size() + "건 중 " + MAX_TABLE_ROWS + "건 표시 · 전체는 앱에서 확인"
-                        : MAX_TABLE_ROWS + " of " + tasks.size() + " tasks shown · see the app for all")
-                : (doc.ko ? "기간 업무 " + tasks.size() + "건" : tasks.size() + " tasks");
+                        ? "기간 업무 " + tableTotal + "건 중 " + MAX_TABLE_ROWS + "건 표시 · 전체는 앱에서 확인"
+                        : MAX_TABLE_ROWS + " of " + tableTotal + " tasks shown · see the app for all")
+                : (doc.ko ? "기간 업무 " + tableTotal + "건" : tableTotal + " tasks");
 
         StringBuilder insights = new StringBuilder();
         for (String line : insights(doc)) {

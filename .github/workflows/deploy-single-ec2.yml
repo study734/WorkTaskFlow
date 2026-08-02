@@ -224,6 +224,13 @@ jobs:
           write_env STORAGE_PROVIDER local
           write_env UPLOAD_LOCAL_ROOT /var/lib/totaskflow/uploads
           write_env OPENAI_API_KEY "$OPENAI_API_KEY"
+          # 키가 등록되기 전에 켜 두면 리포트가 조용히 서버 기본 분석으로만 나온다. 키 유무를
+          # 그대로 따라가게 해서 배포가 스스로 결정한다.
+          if [[ -n "$OPENAI_API_KEY" ]]; then
+            write_env AI_REPORT_ENABLED true
+          else
+            write_env AI_REPORT_ENABLED false
+          fi
           write_env TOSS_CLIENT_KEY "$TOSS_CLIENT_KEY"
           write_env TOSS_SECRET_KEY "$TOSS_SECRET_KEY"
           write_env PAYMENT_ENCRYPTION_KEY_BASE64 "$PAYMENT_ENCRYPTION_KEY_BASE64"

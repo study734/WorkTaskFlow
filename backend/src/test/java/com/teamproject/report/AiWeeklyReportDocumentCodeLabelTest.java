@@ -180,6 +180,17 @@ class AiWeeklyReportDocumentCodeLabelTest {
         assertThat(renderWithTaskCounts(12, 12, "KO")).doesNotContain("건을 대상으로 했습니다");
     }
 
+    /**
+     * 업무표 캡션이 잘린 배열을 모수로 써서, 같은 페이지 KPI가 105건인데 표는 "기간 업무
+     * 100건 중 15건 표시"라고 말했다. 한 페이지가 두 개의 전체 수를 말하는 셈이다.
+     */
+    @Test
+    @DisplayName("업무표 캡션의 모수는 잘린 배열이 아니라 확정 지표를 따른다")
+    void countsTheTaskTableAgainstTheConfirmedMetric() {
+        assertThat(renderWithTaskCounts(105, 100, "KO")).contains("기간 업무 105건 중 15건 표시");
+        assertThat(renderWithTaskCounts(105, 100, "EN")).contains("15 of 105 tasks shown");
+    }
+
     private String renderWithTaskCounts(int periodTaskCount, int analyzedTasks, String language) {
         List<SnapshotTaskView> tasks = new java.util.ArrayList<>();
         for (int i = 1; i <= analyzedTasks; i++) {
