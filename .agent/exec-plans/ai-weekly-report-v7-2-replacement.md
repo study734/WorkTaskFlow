@@ -206,11 +206,32 @@ SDK가 아니라 우리 매퍼가 던진다. `OpenAiAnalysisContractMapper`가 `
 부수 효과로 계약 밖 코드가 조용히 버려지던 경로(`catch (IllegalArgumentException ignored)`)도
 사라졌다. 그 경로는 필수 배열을 비워 validator 거부 → fallback을 만들던 두 번째 낭비였다.
 
-검증: `com.teamproject.report.*Test` 146건 통과(실패 0). 남은 확인은 실물 호출 1회다.
+검증: `com.teamproject.report.*Test` 146건 통과(실패 0). 실물 호출 1회로 `OPENAI` 복귀 확인.
+
+**딸린 발견 (2026-08-02, 커밋 `cf43946`).** 그 실물 문서에 "다수에서 OVERDUE 신호가
+확인되어"와 "선택할 riskCandidates가 없습니다"가 그대로 실려 있었다. 구조화 필드는 렌더러가
+라벨로 바꾸지만 산문은 아무도 손대지 않았다. ref 누출과 같은 종류라 같은 자리(projector)에서
+막았다. 사전은 `AiWeeklyReportCodeVocabulary` 하나이고 문서 렌더러도 그 사전을 쓴다.
+조사 교정 규칙이 ref 치환에만 있어 "완료율가"가 나오길래 규칙도 사전 쪽으로 옮겼다.
+147건 통과.
 
 **남은 실물 확인** — group 21은 집계 모수(105건)와 분석 대상 잘림 공개를, group 22는
 업무 0건 문서를 확인한다. group 17은 위험 0이라 3페이지 검사 항목 요약과 프롬프트 문체
 규칙을 함께 볼 수 있다. 각 1회, 실측 단가로 회당 약 3원이다.
+
+**실물 확인 결과 (2026-08-02 19:26).** group 20을 `regenerate=true`로 다시 불러
+`analysisMode=OPENAI` R2를 받았다. 코드에서 찾은 원인이 맞았다. group 21·22는 18:32에
+이미 OPENAI로 생성돼 있어 저장본을 그대로 받았다(추가 호출 0회, 유료 호출은 group 20 1회).
+
+- group 21 — KPI는 105건, 표 위에 "AI 분석은 기간 업무 105건 중 100건을 대상으로 했습니다"가
+  뜬다. 잘림 공개는 의도대로 동작한다.
+- group 22 — 업무 0건 문서가 4페이지 모두 채워진다. 3페이지는 검사 항목 12개를 0건으로
+  나열하고 4페이지는 "팀장이 결정할 사항이 없습니다"로 닫는다.
+- 두 문서에서 산문 속 계약 코드 누출을 발견해 그 자리에서 고쳤다(`cf43946`). 아래 참조.
+
+**아직 안 고친 것 (group 21에서 관측).** 1페이지 업무표 캡션이 "기간 업무 100건 중 15건 표시"라
+같은 페이지의 KPI(105건)와 다른 수를 말한다. 표가 잘린 snapshot 배열을 모수로 쓴다.
+잘림 자체는 위에서 공개하므로 캡션도 전체 기준(105건)으로 말하는 편이 맞다.
 
 **실측 단가** — gpt-5.6-luna 기준 입력 $0.20/1M, 출력 $1.20/1M. 위 토큰이면 1회 약 $0.0022.
 월 ₩10,000이면 3,000회 이상이다. 상한은 비용이 아니라 폭주 차단 목적으로 잡으면 된다.
@@ -218,9 +239,10 @@ SDK가 아니라 우리 매퍼가 던진다. `OpenAiAnalysisContractMapper`가 `
 **미해결로 남긴 것**
 - 4페이지는 이슈 0일 때 여전히 한 줄이다. 3페이지가 찼으니 합칠지 채울지 실물을 보고 정한다.
 - 할당량을 주간·월간·연간 회수로 나누기로 했다. 요청에 기간 종류를 싣는 것부터 시작한다.
-- `scripts/ai-report-manual-test.ps1`이 참조하는 `ManualAiReportApplication`이 저장소에 없다.
-  `backend/pom.xml`의 `manual-ai-report` 프로필도 같은 클래스를 가리킨다. 수동 테스트 안내
-  문서가 이 스크립트를 쓰라고 하고 있으므로 지금은 문서가 거짓말을 한다.
+- ~~`scripts/ai-report-manual-test.ps1`이 참조하는 `ManualAiReportApplication`이 저장소에 없다.~~
+  2026-08-02 해소. 하네스를 은퇴시켰다. 스크립트와 `manual-ai-report` 프로필을 지우고,
+  안내 문서를 지금 실제로 쓰는 절차(개발 DB + `ai-report-fixture-matrix.sql`)로 바꿨다.
+  시더 클래스를 되살려도 그룹 하나짜리 데이터라 상황별 확인이 안 된다.
 
 ### 다음 작업
 
@@ -247,7 +269,11 @@ SDK가 아니라 우리 매퍼가 던진다. `OpenAiAnalysisContractMapper`가 `
 
   검증: `com.teamproject.report.*Test` 127건 통과(실패 0).
 
-- [ ] **🟡 대시보드 "월 전체"에서 AI 리포트 기간이 조용히 1주차로 잡힌다.**
+- [x] (2026-08-02 확인) **🟡 대시보드 "월 전체"에서 AI 리포트 기간이 조용히 1주차로 잡힌다.**
+  `7da8e10`이 이미 해소했다. `reportRange`는 `week`가 0이면 달 전체 범위를 그대로 쓰고,
+  주간·주차 select가 서로 모순되지 않도록 `selectPeriod`/`selectWeek`가 강제한다. 아래
+  기록은 당시 관측이며 지금 코드와 다르다. 이번 달을 보는 동안 버튼이 잠기는 것은 남지만,
+  그건 달이 아직 안 끝났다는 사실을 정확히 말하는 것이라 결함이 아니다.
   (2026-08-01 관측) [GroupDashboardPage.tsx:153](../../frontend/src/features/dashboard/pages/GroupDashboardPage.tsx)
   의 `reportRange`가 `week`를 falsy 검사한다:
 

@@ -3,67 +3,52 @@
 AI 주간 리포트의 권한, 데이터 경계, 산출물과 검증 절차는
 [AI 주간 리포트 계약](./spec/AiWeeklyReport.md#검증)을 기준으로 한다.
 
-## 2주 MySQL fixture 실행
+## 상황별 fixture 실행
 
-Docker Desktop을 실행한 뒤 Windows PowerShell에서 다음 명령으로 수동 테스트
-환경을 실행한다. **수동 테스트의 기준 실행은 실제 provider(`-RealAi`)다.**
+전용 컨테이너를 띄우던 `scripts/ai-report-manual-test.ps1`은 은퇴했다. 그 스크립트가
+띄우던 시더 클래스는 legacy 정리(`e8d1199`) 때 계약과 함께 사라졌고, 되살려도 그룹
+하나짜리 데이터라 "위험이 없는 기간"이나 "업무가 100건을 넘는 기간" 같은 상황을 볼 수
+없었다. 지금은 평소 개발 DB에 상황별 그룹을 넣고 확인한다.
 
-```powershell
-.\scripts\ai-report-manual-test.ps1 start -RealAi
+1. 개발 DB와 앱을 평소대로 띄운다. `.env`에 `AI_REPORT_ENABLED=true`와
+   `OPENAI_API_KEY`가 있어야 실제 호출 경로가 열린다. 모델은 `OPENAI_MODEL`
+   (기본 `gpt-5.6-luna`)을 따른다. **리포트를 생성할 때마다 과금된다.**
+
+```bash
+docker compose up -d mysql
 ```
 
-`-RealAi`는 저장소 루트 `.env`의 `OPENAI_API_KEY`를 읽어 `AI_REPORT_ENABLED=true`로
-실행한다. 키가 없거나 비어 있으면 시작하지 않는다. 모델은 `OPENAI_MODEL`
-(기본 `gpt-5.6-luna`), 타임아웃은 `OPENAI_REQUEST_TIMEOUT`(기본 `90s`)을 따른다.
-**리포트를 생성할 때마다 실제 호출이 발생하고 과금된다.**
+2. 상황 fixture를 적재한다. 이름(`FIXTURE %`)으로 지우고 새로 만들기 때문에 몇 번을
+   실행해도 같은 상태가 된다. 기간은 `2026-07-20 ~ 2026-07-27`로 고정이다.
 
-`-RealAi`를 붙이지 않은 `start`는 결정론적 Fake AI로 실행되며, 네트워크나 키 없이
-화면·플로우만 훑어볼 때만 쓴다. 이 실행은 검증 증거가 되지 못한다(아래 [검증 경계](#검증-경계) 참고).
-
-```powershell
-.\scripts\ai-report-manual-test.ps1 start
+```bash
+docker exec -i worktaskflow-mysql-1 mysql -uroot -p<암호> teamProject < scripts/ai-report-fixture-matrix.sql
 ```
 
-두 실행 모두 `127.0.0.1:13307`의 전용 MySQL 8.4 컨테이너에 실제 데이터를 저장하고
-백엔드와 프런트엔드를 함께 실행한다. 기존 `localhost:3306/teamProject` 개발 DB나
-외부 DB에는 쓰지 않는다. 다른 DB가 연결되면 fixture가 데이터를 쓰기 전에 중단한다.
+여섯 그룹이 생긴다. 모두 PAID TEAM이고 리더는 개발 계정 `devuser`다.
 
-현재 날짜에 맞는 두 주 데이터를 처음부터 다시 만들려면 다음 명령을 사용한다.
+| 그룹 | 보려는 것 |
+|---|---|
+| FIXTURE 1 위험 없음 | 3페이지의 "검사 항목 요약"과 위험 0건 문체 |
+| FIXTURE 2 지연 다수 | 지연 위험 후보와 4페이지 결정 |
+| FIXTURE 3 승인 대기 | 담당자 없는 요청이 쌓였을 때 |
+| FIXTURE 4 부하 편중 | 한 사람 집중과 재배분 권고 |
+| FIXTURE 5 대량 업무 | 105건. 집계 모수와 분석 대상 잘림 공개 |
+| FIXTURE 6 업무 없음 | 업무 0건 문서 전체 |
 
-```powershell
-.\scripts\ai-report-manual-test.ps1 reset
+3. 프런트엔드를 `http://127.0.0.1:5174`로 열고 `devuser`로 로그인한 뒤, 각 그룹
+   대시보드에서 2026년 7월 3주차를 골라 생성한다. 같은 주간이라 여섯 장을 나란히 놓고
+   비교할 수 있다.
+
+DB를 거치지 않고 API로 바로 뽑아 문서만 확인할 수도 있다.
+
+```bash
+curl -s -X POST "http://127.0.0.1:8081/api/v1/groups/<groupId>/reports/ai-weekly" -H "Content-Type: application/json" -H "Origin: http://localhost:5174" -H "Authorization: Bearer <accessToken>" -d '{"from":"2026-07-20","toExclusive":"2026-07-27","language":"KO","regenerate":false}'
 ```
 
-실행 상태와 종료 명령은 다음과 같다.
-
-```powershell
-.\scripts\ai-report-manual-test.ps1 status
-.\scripts\ai-report-manual-test.ps1 stop
-```
-
-`reset`과 `stop` 뒤의 재실행에도 `-RealAi`를 그대로 붙인다. 붙이지 않으면 Fake AI로
-되돌아가며, 화면상으로는 구분되지 않는다. 실행 중인 모드는 `start` 출력의 `AI :` 줄로 확인한다.
-
-`stop`은 전용 컨테이너와 저장 데이터를 제거한다. 이후 `start`를 실행하면 같은
-구성의 최신 두 주 데이터를 다시 만든다.
-
-- 기준 시간대: `Asia/Seoul`
-- 리포트 주: 마지막으로 완료된 월요일~일요일, 업무 24건
-- 비교 주: 리포트 주의 직전 월요일~일요일, 업무 18건
-- 구성: PAID TEAM, 팀장 1명, 팀원 4명
-- 포함 상태: 완료, 진행, 보류, 할 일, 승인 요청, 취소, 반려
-- 포함 사례: 지연, 고우선순위, 미할당, 체크리스트, 업무 활동 이력
-
-로그인 계정은 로컬 수동 테스트 전용이다.
-
-```text
-아이디: ai_report_tester
-비밀번호: password123!
-```
-
-백엔드를 실행한 상태에서 프런트엔드를 `http://127.0.0.1:5174`로 열고 로그인한다.
-`AI 주간 리포트 테스트팀`에서 마지막 완료 주를 선택하면 해당 주 리포트와 직전 주
-BASELINE 비교를 함께 확인할 수 있다.
+`Origin` 헤더는 `.env`의 `FRONTEND_URL`과 정확히 같아야 한다. 다르면 CORS 단계에서
+403이 나고 인증까지 가지 못한다. `regenerate=false`는 저장본이 있으면 재사용하므로
+호출이 발생하지 않는다.
 
 ## 리포트 생성 절차 (2026-07-31 기준)
 
@@ -103,8 +88,8 @@ A4 4장으로 끊기려면 다음 세 가지를 맞춘다.
 ## 검증 경계
 
 Fake AI 또는 격리된 브라우저 fixture 통과를 실제 OpenAI provider 동작 검증으로 기록하지 않는다.
-provider 동작에 대한 검증 증거는 `-RealAi` 실행에서만 나온다. 검증 기록에는 실행 모드와
-사용 모델을 함께 남긴다.
+provider 동작에 대한 검증 증거는 `AI_REPORT_ENABLED=true`로 키를 넣고 실제 호출이 일어난
+실행에서만 나온다. 검증 기록에는 실행 모드와 사용 모델을 함께 남긴다.
 
 ### 실제 호출 여부 확인법
 

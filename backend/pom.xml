@@ -45,25 +45,5 @@
         <!-- AI 주간 리포트 v7-2 계약 fixture를 docs/contracts의 JSON Schema로 검증한다. -->
         <dependency><groupId>com.networknt</groupId><artifactId>json-schema-validator</artifactId><version>${json-schema-validator.version}</version><scope>test</scope></dependency>
     </dependencies>
-    <profiles>
-        <profile>
-            <id>manual-ai-report</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.springframework.boot</groupId>
-                        <artifactId>spring-boot-maven-plugin</artifactId>
-                        <configuration>
-                            <mainClass>com.teamproject.report.manual.ManualAiReportApplication</mainClass>
-                            <useTestClasspath>true</useTestClasspath>
-                            <additionalClasspathElements>
-                                <additionalClasspathElement>${project.build.testOutputDirectory}</additionalClasspathElement>
-                            </additionalClasspathElements>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
     <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>
 </project>
