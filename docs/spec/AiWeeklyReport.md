@@ -1772,10 +1772,13 @@ public AiWeeklyReportEnvelope generate(
 - TEAM 그룹만 사용 가능 — 구현됨. `AiWeeklyReportAccessService`가 TEAM·PAID를 함께 보고
   `AI_REPORT_PAID_REQUIRED`로 거부한다(별도 `PERSONAL_GROUP_RESTRICTED` 분기는 두지 않는다)
 - 유료 그룹만 사용 가능 (`AI_REPORT_PAID_REQUIRED`) — 구현됨
-- 같은 기간 성공 생성 3회 상한 (`AI_REPORT_WEEKLY_LIMIT`) — **미구현**
+- 같은 기간 성공 생성 3회 상한 (`AI_REPORT_WEEKLY_LIMIT`) — 구현됨. `regenerate=true`일 때
+  기간·언어별 revision 수를 세어 3 이상이면 `409`로 거부한다. 거부는 OpenAI 호출 전에 한다.
 
-> 2026-08-02 확인: 생성 횟수 상한이 코드에 없다. 유료 호출이므로 재생성마다 과금되는데
-> 서버 쪽 상한이 없고, 프런트의 재생성 확인 모달이 유일한 제동이다. 구현 여부를 정해야 한다.
+> 2026-08-02: 이 상한은 한 기간을 반복해 다시 만드는 낭비만 막는다. 기간을 옮겨 가며 부르는
+> **총 지출은 묶이지 않는다.** 그룹 단위 지출 상한은 아직 없고, 값을 정하려면 실제 사용량이
+> 필요하다. 같은 날 `input_tokens`·`output_tokens` 기록을 시작했다(V34에 컬럼은 이미 있었고
+> 계속 null로 저장되고 있었다).
 
 D4로 DRAFT 상태가 사라지므로, 팀원에게 미확정 리포트를 숨기던
 `AI_REPORT_NOT_FINALIZED` 분기도 함께 사라진다. 생성이 끝나면 활성 팀원은

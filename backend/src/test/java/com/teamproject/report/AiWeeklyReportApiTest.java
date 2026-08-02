@@ -80,7 +80,7 @@ class AiWeeklyReportApiTest {
         when(gateway.analyze(any())).thenAnswer(invocation -> {
             gatewayCallCount.incrementAndGet();
             AiWeeklyReportSnapshotV1 snapshot = invocation.getArgument(0);
-            return fallbackFactory.create(snapshot);
+            return AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot));
         });
 
         leaderUser = userRepository.save(new User("leader_api", "leader_api@test.local", "pass123!", "리더", true));

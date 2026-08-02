@@ -72,7 +72,7 @@ class AiWeeklyReportGenerationServiceTest {
         AtomicInteger callCount = new AtomicInteger(0);
         AiWeeklyReportGateway fakeGateway = snapshot -> {
             callCount.incrementAndGet();
-            return fallbackFactory.create(snapshot); // valid analysis
+            return AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)); // valid analysis
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
@@ -111,14 +111,14 @@ class AiWeeklyReportGenerationServiceTest {
     @Test
     @DisplayName("Gateway 결과가 Validator를 실패하면 SERVER_FALLBACK 모드로 전환된다")
     void validatorFailureTriggersFallback() {
-        AiWeeklyReportGateway invalidOutputGateway = snapshot -> new AiWeeklyReportAnalysisV1(
+        AiWeeklyReportGateway invalidOutputGateway = snapshot -> AiWeeklyReportGateway.Analysis.of(new AiWeeklyReportAnalysisV1(
                 "ai-weekly-report-analysis.v1",
                 AnalysisStatus.NORMAL,
                 new ExecutiveJudgment("H", "I", List.of(), List.of("NON_EXISTENT_TASK"), Confidence.HIGH, List.of()),
                 Achievement.none(),
                 List.of(),
                 List.of()
-        );
+        ));
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
                 policyEngine, invalidOutputGateway, validator, fallbackFactory, revisionRepository, json
@@ -136,7 +136,7 @@ class AiWeeklyReportGenerationServiceTest {
         AtomicInteger callCount = new AtomicInteger(0);
         AiWeeklyReportGateway gateway = snapshot -> {
             callCount.incrementAndGet();
-            return fallbackFactory.create(snapshot);
+            return AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot));
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
@@ -161,7 +161,7 @@ class AiWeeklyReportGenerationServiceTest {
         AtomicInteger callCount = new AtomicInteger(0);
         AiWeeklyReportGateway gateway = snapshot -> {
             callCount.incrementAndGet();
-            return fallbackFactory.create(snapshot);
+            return AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot));
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
@@ -201,7 +201,7 @@ class AiWeeklyReportGenerationServiceTest {
                 assertThat(task.safeLabel()).doesNotContain("@");
                 assertThat(task.safeLabel()).doesNotContain("김민준");
             }
-            return fallbackFactory.create(snapshot);
+            return AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot));
         };
 
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
@@ -222,7 +222,7 @@ class AiWeeklyReportGenerationServiceTest {
     void retriesWhenTheRevisionNumberCollides() {
         AiWeeklyReportRevisionRepository flaky = collidingOnceRepository();
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, fallbackFactory::create, validator, fallbackFactory, flaky, json);
+                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, fallbackFactory, flaky, json);
 
         AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
 
@@ -236,7 +236,7 @@ class AiWeeklyReportGenerationServiceTest {
     void reportsAConflictInsteadOfCrashing() {
         AiWeeklyReportRevisionRepository alwaysColliding = alwaysCollidingRepository();
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, fallbackFactory::create, validator, fallbackFactory, alwaysColliding, json);
+                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, fallbackFactory, alwaysColliding, json);
 
         assertThatThrownBy(() -> service.generate(initialRawSnapshot, baseCommand))
                 .isInstanceOf(ApplicationException.class)
@@ -279,7 +279,7 @@ class AiWeeklyReportGenerationServiceTest {
     @DisplayName("저장본을 재사용할 때 그 뒤 데이터가 바뀌었는지 알려 준다")
     void tellsWhetherTheSourceChangedSinceTheStoredRevision() {
         AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
-                policyEngine, fallbackFactory::create, validator, fallbackFactory, revisionRepository, json);
+                policyEngine, snapshot -> AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot)), validator, fallbackFactory, revisionRepository, json);
 
         GenerationResult created = service.generateResult(initialRawSnapshot, baseCommand);
         assertThat(created.createdNew()).isTrue();
@@ -301,5 +301,55 @@ class AiWeeklyReportGenerationServiceTest {
         GenerationResult afterChange = service.generateResult(changed, baseCommand);
         assertThat(afterChange.createdNew()).isFalse();
         assertThat(afterChange.sourceChanged()).isTrue();
+    }
+
+    /**
+     * 재생성은 유료 호출인데 서버에 상한이 없었다. 프런트의 확인 모달은 클라이언트 제동이라
+     * API를 직접 부르면 우회된다. 명세 §15가 정한 기간별 3회를 서버가 강제한다.
+     *
+     * <p>이 상한은 한 기간을 반복해 다시 만드는 낭비만 막는다. 기간을 옮겨 가며 부르는
+     * 총 지출은 묶이지 않는다.
+     */
+    @Test
+    @DisplayName("같은 기간을 상한 넘게 재생성하면 거부한다")
+    void refusesToRegenerateBeyondThePerPeriodLimit() {
+        AtomicInteger calls = new AtomicInteger(0);
+        AiWeeklyReportGateway counting = snapshot -> {
+            calls.incrementAndGet();
+            return AiWeeklyReportGateway.Analysis.of(fallbackFactory.create(snapshot));
+        };
+        AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
+                policyEngine, counting, validator, fallbackFactory, revisionRepository, json);
+
+        service.generateResult(initialRawSnapshot, baseCommand);
+        GenerateCommand regenerate = new GenerateCommand(baseCommand.groupId(), baseCommand.periodFrom(),
+                baseCommand.periodToExclusive(), baseCommand.language(), true,
+                baseCommand.promptVersion(), baseCommand.model());
+
+        service.generateResult(initialRawSnapshot, regenerate);
+        service.generateResult(initialRawSnapshot, regenerate);
+        assertThat(calls.get()).isEqualTo(3);
+
+        assertThatThrownBy(() -> service.generateResult(initialRawSnapshot, regenerate))
+                .isInstanceOf(ApplicationException.class)
+                .satisfies(thrown -> assertThat(((ApplicationException) thrown).code())
+                        .isEqualTo("AI_REPORT_WEEKLY_LIMIT"));
+        // 거부는 호출 전에 일어난다. 돈이 나간 뒤 막으면 의미가 없다.
+        assertThat(calls.get()).isEqualTo(3);
+    }
+
+    /** 토큰 사용량을 기록해 두지 않으면 이 기능이 얼마를 쓰는지 나중에도 알 수 없다. */
+    @Test
+    @DisplayName("gateway가 준 토큰 사용량을 revision에 남긴다")
+    void storesTheReportedTokenUsage() {
+        AiWeeklyReportGateway withUsage = snapshot ->
+                new AiWeeklyReportGateway.Analysis(fallbackFactory.create(snapshot), 5123, 764);
+        AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
+                policyEngine, withUsage, validator, fallbackFactory, revisionRepository, json);
+
+        AiWeeklyReportRevision revision = service.generate(initialRawSnapshot, baseCommand);
+
+        assertThat(revision.getInputTokens()).isEqualTo(5123);
+        assertThat(revision.getOutputTokens()).isEqualTo(764);
     }
 }

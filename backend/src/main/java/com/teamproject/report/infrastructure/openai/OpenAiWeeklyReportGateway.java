@@ -43,7 +43,7 @@ public class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
     }
 
     @Override
-    public AiWeeklyReportAnalysisV1 analyze(AiWeeklyReportSnapshotV1 snapshot) {
+    public Analysis analyze(AiWeeklyReportSnapshotV1 snapshot) {
         if (!properties.enabled()) {
             log.info("OpenAI report generation is disabled via properties");
             throw new OpenAiReportUnavailableException("OpenAI report is disabled");
@@ -86,7 +86,9 @@ public class OpenAiWeeklyReportGateway implements AiWeeklyReportGateway {
                     .findFirst()
                     .orElseThrow(() -> new OpenAiReportInvalidResponseException("No output_text returned from OpenAI Responses API"));
 
-            return mapper.toDomain(contract);
+            Integer inputTokens = response.usage().map(u -> (int) u.inputTokens()).orElse(null);
+            Integer outputTokens = response.usage().map(u -> (int) u.outputTokens()).orElse(null);
+            return new Analysis(mapper.toDomain(contract), inputTokens, outputTokens);
 
         } catch (OpenAiReportException e) {
             log.warn("OpenAI weekly report call failed: category={}", e.getClass().getSimpleName());

@@ -34,6 +34,12 @@ public class AiWeeklyReportGenerationService {
     private static final Logger log = LoggerFactory.getLogger(AiWeeklyReportGenerationService.class);
     /** revision 번호 충돌은 동시 요청 수만큼만 일어난다. 몇 번이면 충분하고, 무한 재시도는 하지 않는다. */
     private static final int SAVE_ATTEMPTS = 3;
+    /**
+     * 같은 기간·언어로 만들 수 있는 revision 수. 명세 §15가 정한 값이다.
+     * 한 기간을 반복해 다시 만드는 낭비만 막는다. 기간을 옮겨 가며 부르는 총 지출은
+     * 이 상한으로 묶이지 않는다. 그쪽은 토큰 사용량이 쌓인 뒤 정한다.
+     */
+    private static final int MAX_REVISIONS_PER_PERIOD = 3;
 
     private final AiWeeklyReportPolicyEngine policyEngine;
     private final AiWeeklyReportGateway gateway;
@@ -115,6 +121,17 @@ public class AiWeeklyReportGenerationService {
 
         String fingerprint = computeFingerprint(snapshotJson, command.promptVersion(), command.model());
 
+        // 3-0. 유료 호출이다. 같은 기간을 무한히 다시 만들지 못하게 막는다. 프런트의 재생성
+        // 확인 모달은 클라이언트 쪽 제동일 뿐이라 API를 직접 부르면 우회된다.
+        if (command.regenerate()) {
+            int made = revisionRepository.findMaxRevision(command.groupId(), command.periodFrom(),
+                    command.periodToExclusive(), command.language()).orElse(0);
+            if (made >= MAX_REVISIONS_PER_PERIOD) {
+                throw new ApplicationException("AI_REPORT_WEEKLY_LIMIT", HttpStatus.CONFLICT,
+                        "같은 기간의 AI 리포트는 " + MAX_REVISIONS_PER_PERIOD + "회까지 생성할 수 있습니다.");
+            }
+        }
+
         // 3. Deduplication check if regenerate=false
         if (!command.regenerate()) {
             Optional<AiWeeklyReportRevision> existing = findLatest(command);
@@ -131,9 +148,14 @@ public class AiWeeklyReportGenerationService {
         // 그 사이에 다른 요청이 같은 번호를 먼저 저장한다.
         AiWeeklyReportAnalysisV1 analysis;
         String mode = "OPENAI";
+        Integer inputTokens = null;
+        Integer outputTokens = null;
 
         try {
-            analysis = gateway.analyze(snapshot);
+            AiWeeklyReportGateway.Analysis answer = gateway.analyze(snapshot);
+            analysis = answer.analysis();
+            inputTokens = answer.inputTokens();
+            outputTokens = answer.outputTokens();
             ValidationResult validationResult = validator.validate(snapshot, analysis);
             if (!validationResult.valid()) {
                 // 왜 fallback으로 내려갔는지 남기지 않으면 운영에서 원인을 찾을 방법이 없다.
@@ -159,7 +181,7 @@ public class AiWeeklyReportGenerationService {
             throw new IllegalStateException("Analysis serialization failed", e);
         }
 
-        return saveNewRevision(command, mode, fingerprint, snapshotJson, analysisJson);
+        return saveNewRevision(command, mode, fingerprint, snapshotJson, analysisJson, inputTokens, outputTokens);
     }
 
     /**
@@ -170,7 +192,8 @@ public class AiWeeklyReportGenerationService {
      * <p>OpenAI 호출은 이 밖에서 끝났다. 30초짜리 외부 호출을 DB 경합 구간에 두지 않는다.
      */
     private GenerationResult saveNewRevision(GenerateCommand command, String mode,
-            String fingerprint, String snapshotJson, String analysisJson) {
+            String fingerprint, String snapshotJson, String analysisJson,
+            Integer inputTokens, Integer outputTokens) {
         for (int attempt = 1; attempt <= SAVE_ATTEMPTS; attempt++) {
             // 호출 중에 다른 요청이 먼저 저장했을 수 있다. 재생성을 고르지 않았다면 그것을 쓴다.
             if (!command.regenerate()) {
@@ -198,8 +221,8 @@ public class AiWeeklyReportGenerationService {
                     analysisJson,
                     command.promptVersion(),
                     command.model(),
-                    null,
-                    null,
+                    inputTokens,
+                    outputTokens,
                     now,
                     now
             );
