@@ -245,9 +245,44 @@ class AiWeeklyReportViewProjectorTest {
 
         assertThat(view.executiveJudgment().headline()).isEqualTo("해당 위험 후보를 확인해야 한다.");
         assertThat(view.executiveJudgment().missingEvidence())
-                .containsExactly("해당 위험 후보의 OVERDUE 상태를 뒷받침하는 근거");
+                .containsExactly("해당 위험 후보의 마감 초과 상태를 뒷받침하는 근거");
         assertThat(view.globalMissingEvidence()).containsExactly("해당 위험 후보의 근거");
         assertThat(proseOf(view)).noneMatch(text -> text.matches(".*(TASK|MEMBER|EVENT|RISK)-\\d+.*"));
+    }
+
+    /**
+     * 실제 관측된 문장이다. 유료 경로로 만든 문서에 "다수에서 OVERDUE 신호가 확인되어"와
+     * "선택할 riskCandidates가 없습니다"가 그대로 실렸다. 모델은 프롬프트에서 본 어휘를
+     * 문장에 옮겨 적는다. ref 누출과 같은 종류라 같은 자리에서 막는다.
+     */
+    @Test
+    @DisplayName("분석 문장 안의 계약 코드와 내부 필드 이름을 사용자 언어로 바꾼다")
+    void replacesContractCodesInsideAnalysisProse() {
+        Fixture fixture = fixture();
+        Task urgent = task(fixture, "결제 실패 로그 확인", Task.Status.TODO, null);
+        flush();
+
+        String analysisJson = """
+                {"schemaVersion":"ai-weekly-report-analysis.v1","analysisStatus":"NORMAL",
+                 "executiveJudgment":{"headline":"다수에서 OVERDUE 신호가 확인되었습니다.",
+                 "interpretation":"WORKLOAD_CONCENTRATION 상태에서 COMPLETION_RATE가 낮습니다.",
+                 "metricRefs":["COMPLETION_RATE"],"evidenceTaskRefs":[],
+                 "confidence":"INSUFFICIENT_EVIDENCE",
+                 "missingEvidence":["선택할 riskCandidates가 없습니다."]},
+                 "globalMissingEvidence":["REBALANCE_WORK 여부를 확인할 근거가 없습니다."]}
+                """;
+
+        AiWeeklyReportView view = projector.project(revision(fixture,
+                snapshotWith(fixture, urgent), analysisJson, "OPENAI"));
+
+        assertThat(view.executiveJudgment().headline())
+                .isEqualTo("다수에서 마감 초과 신호가 확인되었습니다.");
+        assertThat(view.executiveJudgment().interpretation())
+                .isEqualTo("업무 편중 상태에서 완료율이 낮습니다.");
+        assertThat(view.executiveJudgment().missingEvidence())
+                .containsExactly("선택할 위험 후보가 없습니다.");
+        assertThat(view.globalMissingEvidence())
+                .containsExactly("업무 재배분 여부를 확인할 근거가 없습니다.");
     }
 
     /**

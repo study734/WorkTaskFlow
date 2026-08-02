@@ -282,9 +282,6 @@ public class AiWeeklyReportViewProjector {
          */
         private static final Pattern REF = Pattern.compile("\\b(TASK|MEMBER|EVENT|RISK)-(\\d+)\\b");
 
-        /** 치환 뒤 곧바로 오는 조사. 앞말의 받침이 바뀌므로 다시 골라야 한다. */
-        private static final Pattern JOSA = Pattern.compile("^(은|는|이|가|을|를|과|와|으로|로)(?![가-힣])");
-
         private final Map<String, String> taskTitleByRef;
         private final Map<String, String> memberNameByRef;
         private final Map<String, String> eventTitleByRef;
@@ -332,22 +329,14 @@ public class AiWeeklyReportViewProjector {
             while (matcher.find()) {
                 String replacement = displayNameOf(matcher.group());
                 out.append(text, tail, matcher.start()).append(replacement);
-                tail = matcher.end();
-
                 // 모델은 ref 발음에 맞춰 조사를 붙였다("TASK-5은"). 제목으로 바꾸면 받침이 달라진다.
-                Matcher josa = JOSA.matcher(text.substring(tail));
-                if (josa.find()) {
-                    String corrected = correctJosa(josa.group(), replacement);
-                    if (corrected == null) {
-                        out.append(josa.group());
-                    } else {
-                        out.append(corrected);
-                    }
-                    tail += josa.group().length();
-                }
+                tail = matcher.end() + AiWeeklyReportCodeVocabulary.appendCorrectedJosa(
+                        out, text.substring(matcher.end()), replacement);
             }
             out.append(text, tail, text.length());
-            return out.toString();
+            // ref만 바꾸면 "다수에서 OVERDUE 신호가 확인되어"처럼 계약 코드가 그대로 남는다.
+            // 모델은 프롬프트에서 본 어휘를 문장에 옮겨 적는다. 같은 종류의 누출이라 같이 막는다.
+            return AiWeeklyReportCodeVocabulary.resolveInProse(out.toString(), ko);
         }
 
         private String displayNameOf(String ref) {
@@ -357,27 +346,6 @@ public class AiWeeklyReportViewProjector {
             return eventTitle(ref);
         }
 
-        /**
-         * 앞말의 받침에 맞는 조사를 고른다. 마지막 글자가 한글 음절이 아니면(영문 제목 등)
-         * 규칙을 세울 수 없으므로 원문을 그대로 둔다는 뜻으로 null을 준다.
-         */
-        private String correctJosa(String josa, String precedingWord) {
-            if (precedingWord.isEmpty()) return null;
-            char last = precedingWord.charAt(precedingWord.length() - 1);
-            if (last < 0xAC00 || last > 0xD7A3) return null;
-            int jongseong = (last - 0xAC00) % 28;
-            boolean batchim = jongseong != 0;
-            boolean rieul = jongseong == 8;
-            return switch (josa) {
-                case "은", "는" -> batchim ? "은" : "는";
-                case "이", "가" -> batchim ? "이" : "가";
-                case "을", "를" -> batchim ? "을" : "를";
-                case "과", "와" -> batchim ? "과" : "와";
-                // 받침 ㄹ은 예외다. "정리로"가 맞고 "정리으로"는 틀리다.
-                case "으로", "로" -> batchim && !rieul ? "으로" : "로";
-                default -> null;
-            };
-        }
     }
 
     private Map<String, String> buildTaskTitleMap(Long groupId, List<SnapshotTask> snapshotTasks) {

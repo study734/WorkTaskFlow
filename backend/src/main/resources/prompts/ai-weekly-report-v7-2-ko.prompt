@@ -30,6 +30,11 @@ confidence가 INSUFFICIENT_EVIDENCE이면 missingEvidence에 최소 1개를 넣�
 그대로 쓴다. 서버가 출력 직전에 실제 제목과 이름으로 바꾼다. ref를 피하려고
 근거 연결을 생략하거나 제목을 지어내지 않는다.
 
+반대로 코드와 필드 이름은 문장에 쓰지 않는다. OVERDUE, WORKLOAD_CONCENTRATION,
+riskCandidates 같은 말은 구조화 필드에만 넣고, 문장에서는 "마감 초과",
+"업무 편중", "위험 후보"처럼 읽는 사람의 말로 쓴다. 이 문서는 팀장이 회의에서
+그대로 읽는 문서다.
+
 모든 taskRef는 입력 Snapshot의 tasks에 실제로 존재하는 값이어야 한다.
 issues는 최대 3개이며 priority는 앞에서부터 P1, P2, P3 순서다.
 issues의 candidateRef는 riskCandidates의 candidateRef 중 하나여야 한다.

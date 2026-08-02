@@ -714,40 +714,14 @@ public class AiWeeklyReportDocumentService {
 
     /** 계약(ai-weekly-report-analysis-v1.schema.json)의 completionSignalCodes 9개를 모두 덮는다. */
     private String completionLabel(Doc doc, String code) {
-        return switch (code) {
-            case "ASSIGNEE_SET" -> doc.ko ? "담당자 지정 저장" : "assignee saved";
-            case "DUE_AT_SET" -> doc.ko ? "새 마감 저장" : "new due date saved";
-            case "CHECKLIST_STARTED" -> doc.ko ? "체크리스트 착수" : "checklist started";
-            case "RESOURCE_LINKED" -> doc.ko ? "관련 자료 연결" : "resource linked";
-            case "MENTION_RESOLVED" -> doc.ko ? "미응답 멘션 처리" : "mentions resolved";
-            case "HOLD_STATE_RECORDED" -> doc.ko ? "보류 사유 기록" : "hold reason recorded";
-            case "TASK_RESUMED" -> doc.ko ? "업무 재개" : "task resumed";
-            case "SCOPE_DECISION_RECORDED" -> doc.ko ? "범위 결정 기록" : "scope decision recorded";
-            case "NEXT_REVIEW_DATE_SET" -> doc.ko ? "다음 점검일 지정" : "next review date set";
-            default -> doc.ko ? "기타 완료 조건" : "other criterion";
-        };
+        String label = AiWeeklyReportCodeVocabulary.label(code, doc.ko);
+        return label != null ? label : (doc.ko ? "기타 완료 조건" : "other criterion");
     }
 
     /** 계약의 evidenceCodes(SignalCode) 15개. 사용자 문서에 영문 상수를 내보내지 않는다. */
     private String signalLabel(Doc doc, String code) {
-        return switch (code) {
-            case "APPROVED_UNASSIGNED" -> doc.ko ? "담당자 미지정" : "unassigned";
-            case "REQUESTED_PENDING" -> doc.ko ? "승인 대기" : "awaiting approval";
-            case "OVERDUE" -> doc.ko ? "마감 초과" : "overdue";
-            case "DUE_SOON" -> doc.ko ? "마감 임박" : "due soon";
-            case "ON_HOLD" -> doc.ko ? "보류 중" : "on hold";
-            case "CHECKLIST_NOT_STARTED" -> doc.ko ? "체크리스트 미착수" : "checklist not started";
-            case "CHECKLIST_STALLED" -> doc.ko ? "체크리스트 정체" : "checklist stalled";
-            case "RESOURCE_MISSING" -> doc.ko ? "관련 자료 없음" : "no linked resource";
-            case "UNRESOLVED_MENTION" -> doc.ko ? "미응답 멘션" : "unresolved mention";
-            case "WORKLOAD_CONCENTRATION" -> doc.ko ? "업무 편중" : "workload concentration";
-            case "NO_EFFORT_ESTIMATE" -> doc.ko ? "예상 공수 없음" : "no effort estimate";
-            case "NO_COMPLETION_CRITERIA" -> doc.ko ? "완료 기준 없음" : "no completion criteria";
-            case "CALENDAR_CONFLICT" -> doc.ko ? "일정 충돌" : "calendar conflict";
-            case "COMPLETED" -> doc.ko ? "완료됨" : "completed";
-            case "ON_TIME_COMPLETED" -> doc.ko ? "기한 내 완료" : "completed on time";
-            default -> doc.ko ? "기타 신호" : "other signal";
-        };
+        String label = AiWeeklyReportCodeVocabulary.label(code, doc.ko);
+        return label != null ? label : (doc.ko ? "기타 신호" : "other signal");
     }
 
     private String joinCodes(Doc doc, List<String> codes) {

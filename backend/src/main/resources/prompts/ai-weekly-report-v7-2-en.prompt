@@ -30,6 +30,11 @@ When prose refers to a task, member, or event, write the ref itself (TASK-12,
 MEMBER-3, EVENT-7). The server replaces it with the real title or name before the
 reader sees it. Never avoid a ref by dropping the evidence link or inventing a title.
 
+Codes and field names go the other way: keep them out of prose. Words like OVERDUE,
+WORKLOAD_CONCENTRATION, or riskCandidates belong in the structured fields only; in a
+sentence write "overdue", "workload concentration", "risk candidates". A leader reads
+this document aloud in the meeting.
+
 Every taskRef must exist in the tasks array of the input snapshot.
 Provide at most 3 issues, with priority P1, P2, P3 in that order.
 Each issue candidateRef must be one of the riskCandidates candidateRef values.
