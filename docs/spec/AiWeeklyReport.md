@@ -975,12 +975,17 @@ Response:
   "analysisMode": "OPENAI",
   "generatedAt": "2026-07-27T00:05:10Z",
   "downloadUrl": "/api/v1/groups/7/reports/ai-weekly/91/download",
-  "createdNew": true
+  "createdNew": true,
+  "sourceChanged": false
 }
 ```
 
 `createdNew`가 false면 저장된 revision을 그대로 돌려준 것이고 OpenAI를 부르지 않았다.
 프런트는 이 값으로 재생성 여부를 사용자에게 묻는다.
+
+`sourceChanged`는 저장본을 돌려줄 때 그 리포트를 만든 뒤 업무 데이터가 바뀌었는지다.
+서버가 지금 snapshot의 `source_fingerprint`를 저장본의 것과 비교한다. 재생성이 유료이므로
+사용자가 그 값어치를 판단할 근거로 쓴다. `createdNew`가 true면 항상 false다.
 
 HTTP:
 

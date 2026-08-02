@@ -68,7 +68,21 @@ public class AiWeeklyReportGenerationService {
         this.objectMapper = objectMapper;
     }
 
-    public record GenerationResult(AiWeeklyReportRevision revision, boolean createdNew) {}
+    /**
+     * @param sourceChanged 저장본을 재사용할 때, 그 이후 업무 데이터가 바뀌었는지.
+     *                      새로 만든 경우에는 의미가 없으므로 false다.
+     */
+    public record GenerationResult(AiWeeklyReportRevision revision, boolean createdNew,
+            boolean sourceChanged) {
+
+        static GenerationResult created(AiWeeklyReportRevision revision) {
+            return new GenerationResult(revision, true, false);
+        }
+
+        static GenerationResult reused(AiWeeklyReportRevision revision, boolean sourceChanged) {
+            return new GenerationResult(revision, false, sourceChanged);
+        }
+    }
 
     public AiWeeklyReportRevision generate(AiWeeklyReportSnapshotV1 rawSnapshot, GenerateCommand command) {
         return generateResult(rawSnapshot, command).revision();
@@ -105,7 +119,10 @@ public class AiWeeklyReportGenerationService {
         if (!command.regenerate()) {
             Optional<AiWeeklyReportRevision> existing = findLatest(command);
             if (existing.isPresent()) {
-                return new GenerationResult(existing.get(), false);
+                // 지문은 방금 계산했다. 저장본의 것과 비교하면 그 뒤 업무가 바뀌었는지 알 수
+                // 있다. 유료 재생성을 사용자가 감으로 정하지 않게 이 사실을 함께 돌려준다.
+                boolean changed = !fingerprint.equals(existing.get().getSourceFingerprint());
+                return GenerationResult.reused(existing.get(), changed);
             }
         }
 
@@ -159,7 +176,7 @@ public class AiWeeklyReportGenerationService {
             if (!command.regenerate()) {
                 Optional<AiWeeklyReportRevision> concurrent = findLatest(command);
                 if (concurrent.isPresent()) {
-                    return new GenerationResult(concurrent.get(), false);
+                    return GenerationResult.reused(concurrent.get(), false);
                 }
             }
 
@@ -188,7 +205,7 @@ public class AiWeeklyReportGenerationService {
             );
 
             try {
-                return new GenerationResult(revisionRepository.saveAndFlush(newRevision), true);
+                return GenerationResult.created(revisionRepository.saveAndFlush(newRevision));
             } catch (DataIntegrityViolationException collision) {
                 log.warn("AI weekly report revision number collided, retrying: groupId={} period={}..{} revision={} attempt={}",
                         command.groupId(), command.periodFrom(), command.periodToExclusive(),

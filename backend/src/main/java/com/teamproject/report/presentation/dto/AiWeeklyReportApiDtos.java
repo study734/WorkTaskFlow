@@ -30,7 +30,12 @@ public class AiWeeklyReportApiDtos {
             LocalDateTime generatedAt,
             String downloadUrl,
             /** 이번 요청으로 새로 만들었는지. false면 저장된 revision을 그대로 돌려준 것이다. */
-            boolean createdNew
+            boolean createdNew,
+            /**
+             * 저장본을 돌려줄 때, 그 리포트를 만든 뒤 업무 데이터가 바뀌었는지.
+             * 재생성이 값어치를 하는지 사용자가 판단할 근거다. createdNew가 true면 항상 false.
+             */
+            boolean sourceChanged
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

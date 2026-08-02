@@ -120,7 +120,8 @@ public class AiWeeklyReportController {
                 revision.getAnalysisMode(),
                 revision.getGeneratedAt(),
                 downloadUrl,
-                result.createdNew()
+                result.createdNew(),
+                result.sourceChanged()
         );
 
         return ResponseEntity.status(status).body(response);

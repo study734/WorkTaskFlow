@@ -25,6 +25,8 @@ export type GenerateReportResponse = {
   downloadUrl: string;
   /** false면 서버가 저장된 revision을 그대로 돌려준 것이다. OpenAI를 부르지 않았다. */
   createdNew: boolean;
+  /** 저장본을 돌려준 경우, 그 리포트를 만든 뒤 업무 데이터가 바뀌었는지. */
+  sourceChanged: boolean;
 };
 
 export const reportApi = {

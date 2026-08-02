@@ -165,6 +165,20 @@ export function AiWeeklyReportAction({ groupId, group, selection }: Props) {
           hideCloseIcon
           onClose={() => { if (!pending) { setExisting(undefined); setShowLanguageChoice(false); } }}
         >
+          {/*
+            재생성은 유료 호출이다. 서버가 저장본의 지문과 지금 데이터의 지문을 비교해
+            그 사이 업무가 바뀌었는지 알려 준다. 이 값이 없으면 사용자는 감으로 결정한다.
+          */}
+          <p style={{
+            color: existing.report.sourceChanged ? '#8a681c' : '#32735b',
+            fontSize: '12px', margin: '0 0 4px', fontWeight: 600,
+          }}>
+            {existing.report.sourceChanged
+              ? t('이 리포트를 만든 뒤 업무 데이터가 바뀌었습니다. 새로 생성하면 반영됩니다.',
+                'Task data changed after this report was made. Generating a new one will reflect it.')
+              : t('이 리포트를 만든 뒤 업무 데이터가 바뀌지 않았습니다. 새로 생성해도 같은 내용일 가능성이 큽니다.',
+                'Task data has not changed since this report was made. A new one is likely to say the same thing.')}
+          </p>
           <p style={{ color: '#8a8490', fontSize: '12px', margin: '0 0 4px' }}>
             {t(
               '새로 생성하면 AI 분석을 다시 실행하고 새 리비전으로 저장합니다.',

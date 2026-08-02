@@ -5,6 +5,7 @@ import com.teamproject.report.application.AiWeeklyReportAnalysisValidator;
 import com.teamproject.report.application.AiWeeklyReportFallbackFactory;
 import com.teamproject.report.application.AiWeeklyReportGenerationService;
 import com.teamproject.report.application.AiWeeklyReportGenerationService.GenerateCommand;
+import com.teamproject.report.application.AiWeeklyReportGenerationService.GenerationResult;
 import com.teamproject.report.application.AiWeeklyReportPolicyEngine;
 import com.teamproject.report.application.dto.AiWeeklyReportAnalysisDtos.*;
 import com.teamproject.report.application.dto.AiWeeklyReportDtos.*;
@@ -267,5 +268,38 @@ class AiWeeklyReportGenerationServiceTest {
                         .invoke(revisionRepository, invocation.getArguments())));
         doThrow(new DataIntegrityViolationException("duplicate revision")).when(spy).saveAndFlush(any());
         return spy;
+    }
+
+    /**
+     * source_fingerprint를 계산·저장·색인까지 해 두고 아무도 읽지 않았다. 저장본을 돌려줄 때
+     * 그 뒤 업무가 바뀌었는지 서버는 알 수 있는데 알려 주지 않았고, 사용자는 유료 재생성을
+     * 감으로 결정했다. 지문은 중복 검사 직전에 이미 계산돼 있어 비교 비용이 사실상 없다.
+     */
+    @Test
+    @DisplayName("저장본을 재사용할 때 그 뒤 데이터가 바뀌었는지 알려 준다")
+    void tellsWhetherTheSourceChangedSinceTheStoredRevision() {
+        AiWeeklyReportGenerationService service = new AiWeeklyReportGenerationService(
+                policyEngine, fallbackFactory::create, validator, fallbackFactory, revisionRepository, json);
+
+        GenerationResult created = service.generateResult(initialRawSnapshot, baseCommand);
+        assertThat(created.createdNew()).isTrue();
+        assertThat(created.sourceChanged()).isFalse();
+
+        // 같은 snapshot을 다시 요청하면 데이터가 그대로다.
+        GenerationResult sameData = service.generateResult(initialRawSnapshot, baseCommand);
+        assertThat(sameData.createdNew()).isFalse();
+        assertThat(sameData.sourceChanged()).isFalse();
+
+        // 업무 하나를 덜어내면 지문이 달라진다.
+        AiWeeklyReportSnapshotV1 changed = new AiWeeklyReportSnapshotV1(
+                initialRawSnapshot.schemaVersion(), initialRawSnapshot.reportContext(),
+                initialRawSnapshot.metrics(), initialRawSnapshot.comparison(),
+                initialRawSnapshot.workflow(), initialRawSnapshot.members(),
+                initialRawSnapshot.tasks().subList(0, initialRawSnapshot.tasks().size() - 1),
+                initialRawSnapshot.calendarConstraints(), initialRawSnapshot.riskCandidates());
+
+        GenerationResult afterChange = service.generateResult(changed, baseCommand);
+        assertThat(afterChange.createdNew()).isFalse();
+        assertThat(afterChange.sourceChanged()).isTrue();
     }
 }
