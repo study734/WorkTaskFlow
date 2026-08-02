@@ -28,10 +28,8 @@ public class OpenAiAnalysisContractMapper {
         if (contract.executiveJudgment != null) {
             List<MetricRef> mRefs = new ArrayList<>();
             if (contract.executiveJudgment.metricRefs != null) {
-                for (String mr : contract.executiveJudgment.metricRefs) {
-                    try {
-                        mRefs.add(MetricRef.valueOf(mr));
-                    } catch (IllegalArgumentException ignored) {}
+                for (var mr : contract.executiveJudgment.metricRefs) {
+                    if (mr != null) mRefs.add(MetricRef.valueOf(mr.name()));
                 }
             }
             Confidence conf = contract.executiveJudgment.confidence != null
@@ -67,47 +65,41 @@ public class OpenAiAnalysisContractMapper {
         if (contract.issues != null) {
             for (AiWeeklyReportAnalysisContract.Issue issue : contract.issues) {
                 IssuePriority priority = issue.priority != null ? IssuePriority.valueOf(issue.priority.name()) : IssuePriority.P1;
-                Severity severity = issue.severity != null ? Severity.valueOf(issue.severity) : Severity.MEDIUM;
+                Severity severity = issue.severity != null ? Severity.valueOf(issue.severity.name()) : Severity.MEDIUM;
                 Confidence conf = issue.confidence != null ? Confidence.valueOf(issue.confidence.name()) : Confidence.HIGH;
 
                 List<SignalCode> evidenceCodes = new ArrayList<>();
                 if (issue.evidenceCodes != null) {
-                    for (String ec : issue.evidenceCodes) {
-                        try {
-                            evidenceCodes.add(SignalCode.valueOf(ec));
-                        } catch (IllegalArgumentException ignored) {}
+                    for (var ec : issue.evidenceCodes) {
+                        if (ec != null) evidenceCodes.add(SignalCode.valueOf(ec.name()));
                     }
                 }
 
                 IssueDecision decision = null;
                 if (issue.decision != null) {
                     DecisionOptionCode recOpt = issue.decision.recommendedOptionCode != null
-                            ? DecisionOptionCode.valueOf(issue.decision.recommendedOptionCode)
+                            ? DecisionOptionCode.valueOf(issue.decision.recommendedOptionCode.name())
                             : DecisionOptionCode.KEEP_CURRENT_PLAN;
 
                     IssueDeadline deadline = null;
                     if (issue.decision.deadline != null) {
                         deadline = new IssueDeadline(
-                                issue.decision.deadline.source,
+                                issue.decision.deadline.source != null ? issue.decision.deadline.source.name() : null,
                                 issue.decision.deadline.referenceRef != null ? issue.decision.deadline.referenceRef.orElse(null) : null
                         );
                     }
 
                     List<ExecutionStepCode> steps = new ArrayList<>();
                     if (issue.decision.executionStepCodes != null) {
-                        for (String s : issue.decision.executionStepCodes) {
-                            try {
-                                steps.add(ExecutionStepCode.valueOf(s));
-                            } catch (IllegalArgumentException ignored) {}
+                        for (var s : issue.decision.executionStepCodes) {
+                            if (s != null) steps.add(ExecutionStepCode.valueOf(s.name()));
                         }
                     }
 
                     List<CompletionSignalCode> completions = new ArrayList<>();
                     if (issue.decision.completionSignalCodes != null) {
-                        for (String c : issue.decision.completionSignalCodes) {
-                            try {
-                                completions.add(CompletionSignalCode.valueOf(c));
-                            } catch (IllegalArgumentException ignored) {}
+                        for (var c : issue.decision.completionSignalCodes) {
+                            if (c != null) completions.add(CompletionSignalCode.valueOf(c.name()));
                         }
                     }
 
@@ -116,8 +108,8 @@ public class OpenAiAnalysisContractMapper {
                             issue.decision.question,
                             recOpt,
                             issue.decision.recommendation,
-                            issue.decision.decisionMakerRole,
-                            issue.decision.actionOwnerRole,
+                            issue.decision.decisionMakerRole != null ? issue.decision.decisionMakerRole.name() : null,
+                            issue.decision.actionOwnerRole != null ? issue.decision.actionOwnerRole.name() : null,
                             deadline,
                             steps,
                             completions

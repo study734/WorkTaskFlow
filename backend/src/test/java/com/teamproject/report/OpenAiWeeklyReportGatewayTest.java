@@ -92,6 +92,35 @@ class OpenAiWeeklyReportGatewayTest {
         assertThat(raw.instructions().orElseThrow()).contains("당신은 팀 업무 회의를 지원하는 분석가다.");
     }
 
+    /**
+     * severity와 recommendedOptionCode가 String이던 동안 모델은 계약 밖 값을 돌려줄 수 있었고,
+     * 매퍼의 {@code valueOf}가 IllegalArgumentException으로 터져 유료 응답 하나가 통째로
+     * SERVER_FALLBACK이 됐다. fixture matrix의 group 20에서 실제로 관측했다.
+     * 이제는 요청 스키마가 값 자체를 강제한다.
+     */
+    @Test
+    @DisplayName("닫힌 코드 집합은 요청 스키마에서 enum으로 강제된다")
+    void constrainsClosedCodeSetsInTheRequestSchema() throws Exception {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
+        stubResponse(completed(json.writeValueAsString(fallback)));
+
+        gateway(true, MODEL).analyze(snapshot);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<StructuredResponseCreateParams<AiWeeklyReportAnalysisContract>> captor =
+                ArgumentCaptor.forClass(StructuredResponseCreateParams.class);
+        org.mockito.Mockito.verify(responses).create(captor.capture());
+
+        String schema = captor.getValue().rawParams().text().orElseThrow().toString();
+        assertThat(schema)
+                .contains("REBALANCE_WORK")
+                .contains("SET_NEXT_REVIEW_DATE")
+                .contains("LEADER_DECISION_REQUIRED")
+                .contains("WORKLOAD_CONCENTRATION")
+                .contains("GROUP_ADMIN")
+                .contains("SELECTED_MEMBER");
+    }
+
     @Test
     @DisplayName("OpenAI 응답이 비활성화되었거나 모델이 없으면 OpenAiReportUnavailableException을 던진다")
     void throwsExceptionOnDisabledOrMissingModel() {

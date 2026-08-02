@@ -1272,10 +1272,35 @@ public final class AiWeeklyReportAnalysisContract {
         P3
     }
 
+    public enum Severity { HIGH, MEDIUM, LOW }
+
+    public enum MetricRef {
+        PERIOD_TASK_COUNT, COMPLETION_RATE, ON_TIME_RATE, DELAYED_COUNT,
+        PERIOD_TASK_COUNT_DELTA, COMPLETION_RATE_DELTA, ON_TIME_RATE_DELTA, DELAYED_COUNT_DELTA
+    }
+
+    public enum SignalCode { /* 저장 Schema의 evidenceCodes enum 15개 */ }
+
+    public enum DecisionOptionCode { /* 저장 Schema의 7개 */ }
+
+    public enum ExecutionStepCode { /* 저장 Schema의 10개 */ }
+
+    public enum CompletionSignalCode { /* 저장 Schema의 9개 */ }
+
+    public enum DecisionMakerRole { LEADER, GROUP_ADMIN }
+
+    public enum ActionOwnerRole {
+        SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER, LEADER, TEAM
+    }
+
+    public enum DeadlineSource {
+        MEETING_END, TASK_DUE, CALENDAR_EVENT, LEADER_DECISION_REQUIRED
+    }
+
     public static final class ExecutiveJudgment {
         public String headline;
         public String interpretation;
-        public List<String> metricRefs;
+        public List<MetricRef> metricRefs;
         public List<String> evidenceTaskRefs;
         public Confidence confidence;
         public List<String> missingEvidence;
@@ -1291,12 +1316,12 @@ public final class AiWeeklyReportAnalysisContract {
     public static final class Issue {
         public Priority priority;
         public String candidateRef;
-        public String severity;
+        public Severity severity;
         public String title;
         public String impact;
         public Confidence confidence;
         public List<String> taskRefs;
-        public List<String> evidenceCodes;
+        public List<SignalCode> evidenceCodes;
         public List<String> missingEvidence;
         public String integratedJudgment;
         public String requiredDecision;
@@ -1306,18 +1331,17 @@ public final class AiWeeklyReportAnalysisContract {
     public static final class Decision {
         public String title;
         public String question;
-        public String recommendedOptionCode;
+        public DecisionOptionCode recommendedOptionCode;
         public String recommendation;
-        public String decisionMakerRole;
-        public String actionOwnerRole;
+        public DecisionMakerRole decisionMakerRole;
+        public ActionOwnerRole actionOwnerRole;
         public Deadline deadline;
-        public List<String> executionStepCodes;
-        public List<String> completionSignalCodes;
+        public List<ExecutionStepCode> executionStepCodes;
+        public List<CompletionSignalCode> completionSignalCodes;
     }
 
     public static final class Deadline {
-        @JsonPropertyDescription("MEETING_END, TASK_DUE, CALENDAR_EVENT, or LEADER_DECISION_REQUIRED")
-        public String source;
+        public DeadlineSource source;
         public Optional<String> referenceRef;
     }
 }
@@ -1333,6 +1357,10 @@ public final class AiWeeklyReportAnalysisContract {
   (예: `achievement.status`)에는 쓰지 않는다 (D2)
 - 모든 schema 대상 클래스는 최소 1개 이상의 공개 필드 또는 getter를 가진다.
 - enum은 OpenAI 출력에서 허용할 값만 정의한다.
+- 닫힌 코드 집합은 **반드시 enum으로 선언한다**. `String`으로 두면 생성 스키마가 자유
+  문자열이 되어 계약 밖 값이 응답에 실릴 수 있고, 그 값은 유료 호출이 끝난 뒤 매핑이나
+  검증에서 버려진다. 실제로 `severity`·`recommendedOptionCode`가 String이던 동안
+  fixture matrix group 20이 매핑 단계에서 터져 SERVER_FALLBACK으로 떨어졌다.
 - 최대 배열 길이와 cross-field 규칙은 서버 Validator에서 검사한다.
 - 민감한 원문이 역직렬화 오류 메시지에 포함될 수 있으므로 예외 전체 메시지를 운영 로그에 남기지 않는다.
 

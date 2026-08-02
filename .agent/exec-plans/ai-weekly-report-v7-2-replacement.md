@@ -189,6 +189,25 @@ D3는 "월간·연간 허용"이 같은 문서에 공존했다. 정본을 schema
 역직렬화 실패로 보이지만 그 이상은 알 수 없었다. 원인 클래스까지 남기도록 로그를 고쳤으니
 group 20을 `regenerate=true`로 한 번 더 부르면 근본 원인 클래스가 나온다. 유료 호출 1회다.
 
+**해소 (2026-08-02, 유료 호출 없이).** 재현 대신 코드에서 찾았다. `IllegalArgumentException`은
+SDK가 아니라 우리 매퍼가 던진다. `OpenAiAnalysisContractMapper`가 `Severity.valueOf(issue.severity)`와
+`DecisionOptionCode.valueOf(...recommendedOptionCode)`를 방어 없이 부르는데, 두 필드가 계약
+클래스에서 `String`이었다. String이면 SDK가 만드는 요청 스키마도 자유 문자열이라 모델이 계약 밖
+값을 실을 수 있다. 그리고 `mapper.toDomain`은 gateway의 `try` 안에 있어서 그 예외가 gateway
+실패로 분류되고, 이미 값을 치른 응답 하나가 통째로 버려진다. 위험 후보가 `WORKLOAD_CONCENTRATION`
+하나뿐인 group 20에서만 모델이 벗어난 값을 골랐을 뿐, 그룹 특성 문제가 아니다.
+
+닫힌 코드 집합 전부를 계약 클래스에서 enum으로 바꿨다 — `severity`, `recommendedOptionCode`,
+`metricRefs`, `evidenceCodes`, `executionStepCodes`, `completionSignalCodes`,
+`decisionMakerRole`, `actionOwnerRole`, `deadline.source`. 이제 값이 응답 스키마 단계에서
+강제되고, 매퍼는 enum → enum 변환이라 구조적으로 던질 수 없다. 생성된 요청 스키마에 각 코드가
+실려 나가는지 `OpenAiWeeklyReportGatewayTest`에 회귀 테스트로 고정했다.
+
+부수 효과로 계약 밖 코드가 조용히 버려지던 경로(`catch (IllegalArgumentException ignored)`)도
+사라졌다. 그 경로는 필수 배열을 비워 validator 거부 → fallback을 만들던 두 번째 낭비였다.
+
+검증: `com.teamproject.report.*Test` 146건 통과(실패 0). 남은 확인은 실물 호출 1회다.
+
 **남은 실물 확인** — group 21은 집계 모수(105건)와 분석 대상 잘림 공개를, group 22는
 업무 0건 문서를 확인한다. group 17은 위험 0이라 3페이지 검사 항목 요약과 프롬프트 문체
 규칙을 함께 볼 수 있다. 각 1회, 실측 단가로 회당 약 3원이다.
