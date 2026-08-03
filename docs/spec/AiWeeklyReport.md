@@ -6,7 +6,7 @@
 - 사용자 표현: v7-2
 - 입력 계약: `ai-weekly-report-snapshot.v1`
 - OpenAI 출력 계약: `ai-weekly-report-analysis.v1`
-- 프롬프트 버전: `v7-2-prompt-001`
+- 프롬프트 버전: `v7-2-prompt-003`
 - OpenAI 연동: 공식 `com.openai:openai-java`. **버전 정본은 `backend/pom.xml`의 `<openai-java.version>`이다.** 이 문서는 버전을 고정하지 않는다.
 - OpenAI API: Responses API + Java 타입 기반 Structured Outputs
 - Spring 연동: `OpenAIClient` Bean 직접 등록. EOL된 Spring Boot Starter 사용 금지
@@ -63,8 +63,8 @@
 
   > 개정 사유: 서버 PDF 렌더러(openhtmltopdf)가 CSS 2.1까지만 이해해 flex와
   > grid를 그리지 못한다. 목표 디자인은 거의 모든 구역이 grid라 그대로 옮길 수
-  > 없었다. 기존 `/pdf` endpoint는 회귀 테스트가 잡고 있어 남겨 두지만,
-  > 생성 응답과 조회 뷰의 `downloadUrl`은 `/download`를 가리킨다.
+  > 없었다. `/pdf` endpoint는 제거했다 — 그 자리에서 내려가던 문서는 리포트
+  > 정본과 내용이 달라, 받는 사람에게 리포트의 PDF판으로 오해됐다.
 
 ---
 
@@ -334,7 +334,7 @@ docs/contracts/ai-weekly-report-snapshot-v1.schema.json
     },
     "generatedAt": "2026-07-27T00:05:00Z",
     "language": "KO",
-    "promptVersion": "v7-2-prompt-001"
+    "promptVersion": "v7-2-prompt-003"
   }
 }
 ```
@@ -1037,14 +1037,12 @@ GET /api/v1/groups/{groupId}/reports/ai-weekly/{reportId}/download
 - 문서 언어는 revision에 저장된 언어를 따른다. 요청 시점 화면 언어를 쓰면
   EN 분석에 한국어 껍데기가 씌워진다.
 
-`GET .../{reportId}/pdf`는 회귀 테스트가 잡고 있어 남아 있지만 산출물 정본이
-아니다. 생성 응답과 조회 뷰의 `downloadUrl`은 `/download`를 가리킨다.
-- 기존 endpoint 경로 `/{reportId}/pdf`를 그대로 유지한다
+`GET .../{reportId}/pdf`는 제거했다. 산출물은 `/download`가 주는 HTML 하나이고
+PDF 저장은 브라우저 인쇄가 한다. 생성 응답과 조회 뷰의 `downloadUrl`도
+`/download`를 가리킨다.
 
-**실제 PDF를 유지한다.** 기존 구현의 OpenHTMLtoPDF 렌더러
-(`OpenHtmlReportPdfRenderer`)를 재사용하고, `renderWeeklyAi()`의 본문만 v7-2
-4페이지 구조로 교체한다. `renderBasic()`(기본 리포트)은 변경하지 않는다.
-HTML 다운로드로 후퇴하지 않는다.
+`OpenHtmlReportPdfRenderer`는 `renderBasic()`(기본 리포트)만 남는다. 기본
+리포트는 표 기반이라 CSS 2.1 한계에 걸리지 않는다.
 
 # 10. 공식 OpenAI Java SDK 연동
 
@@ -1137,7 +1135,7 @@ app.ai-report.model=${OPENAI_MODEL:}
 app.ai-report.request-timeout=${OPENAI_REQUEST_TIMEOUT:45s}
 app.ai-report.max-retries=${OPENAI_MAX_RETRIES:1}
 app.ai-report.max-output-tokens=${OPENAI_MAX_OUTPUT_TOKENS:3000}
-app.ai-report.prompt-version=v7-2-prompt-001
+app.ai-report.prompt-version=v7-2-prompt-003
 ```
 
 이번 교체에서 실제로 바뀌는 값은 다음뿐이다.
@@ -1704,8 +1702,12 @@ backend/src/main/java/com/teamproject/report/
 backend/src/main/resources/db/migration/
 └─ V34__create_ai_weekly_report_revision.sql
 
+backend/src/main/resources/prompts/
+├─ ai-weekly-report-v7-2-ko.prompt
+└─ ai-weekly-report-v7-2-en.prompt
+
 backend/src/main/resources/ai/
-├─ v7-2-prompt-001.txt
+├─ ai-weekly-report-snapshot-v1.schema.json
 └─ ai-weekly-report-analysis-v1.schema.json
 
 backend/src/test/resources/ai/
@@ -2020,7 +2022,7 @@ MVP: tasks.blocker_type(V32 컬럼)을 history.holdReasonCategory enum으로 매
 | D5 저장소 | `V34` 신규 `ai_weekly_report_revision` 테이블. 기존 `reports` 데이터 변환 금지 |
 | D5 legacy | 기존 AI 리포트 ID 접근 시 `410 AI_REPORT_LEGACY_REVISION` |
 | D6 설정 | 기존 `app.ai-report.*`와 기존 환경변수 이름 유지. SDK 버전과 실행 정책만 변경 |
-| D7 다운로드 | 실제 PDF 유지. 기존 `/pdf`와 `application/pdf` 유지 |
+| D7 다운로드 | 산출물은 `/download`의 `text/html` 하나. `/pdf`는 제거, PDF 저장은 브라우저 인쇄 |
 
 # 22. 최종 정의
 

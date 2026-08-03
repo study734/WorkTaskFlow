@@ -1,12 +1,10 @@
 package com.teamproject.report.application;
 
-import com.teamproject.report.presentation.dto.AiWeeklyReportApiDtos.AiWeeklyReportView;
 import java.time.LocalDate;
 import java.util.List;
 
 public interface ReportPdfRenderer {
     byte[] renderBasic(BasicReportDocument document);
-    byte[] renderWeeklyAiV72(AiWeeklyReportView view);
 
     record BasicReportDocument(
             String title,

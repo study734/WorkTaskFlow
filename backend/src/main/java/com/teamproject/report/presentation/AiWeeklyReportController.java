@@ -8,7 +8,6 @@ import com.teamproject.report.application.AiWeeklyReportGenerationService;
 import com.teamproject.report.application.AiWeeklyReportGenerationService.GenerateCommand;
 import com.teamproject.report.application.AiWeeklyReportSnapshotAssembler;
 import com.teamproject.report.application.AiWeeklyReportViewProjector;
-import com.teamproject.report.application.ReportPdfRenderer;
 import com.teamproject.report.application.dto.AiWeeklyReportDtos.AiWeeklyReportSnapshotV1;
 import com.teamproject.report.application.dto.AiWeeklyReportDtos.Language;
 import com.teamproject.report.domain.AiWeeklyReportRevision;
@@ -45,7 +44,6 @@ public class AiWeeklyReportController {
     private final WeeklyReportRepository legacyReportRepository;
     private final AiWeeklyReportViewProjector viewProjector;
     private final AiWeeklyReportDocumentService documentService;
-    private final ReportPdfRenderer pdfRenderer;
     private final OpenAiReportProperties properties;
     private final Clock clock;
 
@@ -57,7 +55,6 @@ public class AiWeeklyReportController {
             WeeklyReportRepository legacyReportRepository,
             AiWeeklyReportViewProjector viewProjector,
             AiWeeklyReportDocumentService documentService,
-            ReportPdfRenderer pdfRenderer,
             OpenAiReportProperties properties,
             Clock clock
     ) {
@@ -68,7 +65,6 @@ public class AiWeeklyReportController {
         this.legacyReportRepository = legacyReportRepository;
         this.viewProjector = viewProjector;
         this.documentService = documentService;
-        this.pdfRenderer = pdfRenderer;
         this.properties = properties;
         this.clock = clock;
     }
@@ -173,34 +169,6 @@ public class AiWeeklyReportController {
                 .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
                 .contentType(MediaType.TEXT_HTML)
                 .body(document.content());
-    }
-
-    @GetMapping(value = "/{reportId}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
-    @Transactional(readOnly = true)
-    public ResponseEntity<byte[]> downloadPdf(
-            Authentication authentication,
-            @PathVariable Long groupId,
-            @PathVariable Long reportId
-    ) {
-        Long userId = (Long) authentication.getPrincipal();
-        accessService.requireActiveMember(groupId, userId);
-
-        AiWeeklyReportRevision revision = findRevisionOrCheckLegacy(groupId, reportId);
-        AiWeeklyReportView view = viewProjector.project(revision);
-
-        byte[] pdfBytes = pdfRenderer.renderWeeklyAiV72(view);
-
-        String filename = String.format("ai-weekly-report-%s-r%d.pdf", revision.getPeriodFrom(), revision.getRevision());
-        String disposition = ContentDisposition.attachment()
-                .filename(filename, StandardCharsets.UTF_8)
-                .build().toString();
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
-                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
-                .contentType(MediaType.APPLICATION_PDF)
-                .contentLength(pdfBytes.length)
-                .body(pdfBytes);
     }
 
     private AiWeeklyReportRevision findRevisionOrCheckLegacy(Long groupId, Long reportId) {

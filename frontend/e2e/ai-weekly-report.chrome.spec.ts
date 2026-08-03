@@ -244,16 +244,6 @@ test('표준 리포트 reader에서 편집·재생성·확정한다', async ({
   await expect.poll(() => api.finalizationRequests).toBe(1);
   await expect(page.getByText('확정됨', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '초안 편집' })).toHaveCount(0);
-
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'PDF 다운로드' }).click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe('ai-weekly-report-2026-07-13-r2.pdf');
-  const downloadedPath = await download.path();
-  expect(downloadedPath).not.toBeNull();
-  const downloadedBytes = await readFile(downloadedPath!);
-  expect(downloadedBytes.subarray(0, 5).toString('ascii')).toBe('%PDF-');
-  expect(api.pdfRequests).toBe(1);
 });
 
 test('finalized print 화면은 frozen 위험 순서와 기존 근거 마크업을 유지한다', async ({
@@ -319,7 +309,6 @@ test('finalized print 화면은 frozen 위험 순서와 기존 근거 마크업�
   expect(api.revisionRequests).toBe(0);
   expect(api.generationRequests).toBe(0);
   expect(api.regenerationRequests).toBe(0);
-  expect(api.pdfRequests).toBe(0);
 });
 
 test('첫 리포트의 BASELINE과 서버 위험·AI 위험을 구분하고 밀도를 전환한다', async ({
@@ -388,7 +377,6 @@ test('첫 리포트의 BASELINE과 서버 위험·AI 위험을 구분하고 밀�
   const revisionRequestsAtStandard = api.revisionRequests;
   const generationRequestsAtStandard = api.generationRequests;
   const regenerationRequestsAtStandard = api.regenerationRequests;
-  const pdfRequestsAtStandard = api.pdfRequests;
 
   await page.getByRole('button', { name: '요약' }).click();
   await expect(page).toHaveURL('/groups/1/reports/ai-weekly/1?density=SUMMARY');
@@ -453,7 +441,6 @@ test('첫 리포트의 BASELINE과 서버 위험·AI 위험을 구분하고 밀�
   expect(api.revisionRequests).toBe(revisionRequestsAtStandard);
   expect(api.generationRequests).toBe(generationRequestsAtStandard);
   expect(api.regenerationRequests).toBe(regenerationRequestsAtStandard);
-  expect(api.pdfRequests).toBe(pdfRequestsAtStandard);
 });
 
 test('명시적 taskRefs와 서버 fallback을 frozen 업무에만 연결한다', async ({
@@ -794,7 +781,6 @@ test('MEMBER_COMPARISON은 frozen 순서와 서버 위험 업무만 투영한다
   const revisionRequests = api.revisionRequests;
   const generationRequests = api.generationRequests;
   const regenerationRequests = api.regenerationRequests;
-  const pdfRequests = api.pdfRequests;
 
   await page.getByLabel('리포트 범위').selectOption('MEMBER_COMPARISON');
   await expect(page.getByRole('heading', { name: '팀원 비교' })).toBeVisible();
@@ -840,7 +826,6 @@ test('MEMBER_COMPARISON은 frozen 순서와 서버 위험 업무만 투영한다
   expect(api.revisionRequests).toBe(revisionRequests);
   expect(api.generationRequests).toBe(generationRequests);
   expect(api.regenerationRequests).toBe(regenerationRequests);
-  expect(api.pdfRequests).toBe(pdfRequests);
 });
 
 test('INDIVIDUAL_MEMBER는 frozen KPI와 선택 팀원 업무만 투영한다', async ({
@@ -920,7 +905,6 @@ test('INDIVIDUAL_MEMBER는 frozen KPI와 선택 팀원 업무만 투영한다', 
   const revisionRequests = api.revisionRequests;
   const generationRequests = api.generationRequests;
   const regenerationRequests = api.regenerationRequests;
-  const pdfRequests = api.pdfRequests;
 
   await page.getByLabel('리포트 범위').selectOption('INDIVIDUAL_MEMBER');
   await expect(page.getByLabel('팀원 선택')).toHaveValue('MEMBER-A');
@@ -981,7 +965,6 @@ test('INDIVIDUAL_MEMBER는 frozen KPI와 선택 팀원 업무만 투영한다', 
   expect(api.revisionRequests).toBe(revisionRequests);
   expect(api.generationRequests).toBe(generationRequests);
   expect(api.regenerationRequests).toBe(regenerationRequests);
-  expect(api.pdfRequests).toBe(pdfRequests);
 });
 
 test('invalid projection query를 기본값으로 복구하고 comparison memberRef를 제거한다', async ({
@@ -1057,7 +1040,6 @@ test('frozen member 선택을 유지하고 projection 전환 중 report API를 �
   const revisionRequestsBeforeProjection = api.revisionRequests;
   const generationRequestsBeforeProjection = api.generationRequests;
   const regenerationRequestsBeforeProjection = api.regenerationRequests;
-  const pdfRequestsBeforeProjection = api.pdfRequests;
 
   await page.getByLabel('리포트 범위').selectOption('MEMBER_COMPARISON');
   await expect(page.getByLabel('리포트 범위')).toHaveValue('MEMBER_COMPARISON');
@@ -1096,7 +1078,6 @@ test('frozen member 선택을 유지하고 projection 전환 중 report API를 �
   expect(api.revisionRequests).toBe(revisionRequestsBeforeProjection);
   expect(api.generationRequests).toBe(generationRequestsBeforeProjection);
   expect(api.regenerationRequests).toBe(regenerationRequestsBeforeProjection);
-  expect(api.pdfRequests).toBe(pdfRequestsBeforeProjection);
 });
 
 test('기본 리포트도 팝업 없이 PDF 파일로 다운로드한다', async ({ page, context }) => {
@@ -1227,7 +1208,6 @@ class ReportApiFixture {
   reportByIdRequests = 0;
   revisionRequests = 0;
   generationRequests = 0;
-  pdfRequests = 0;
   editRequests = 0;
   regenerationRequests = 0;
   finalizationRequests = 0;
@@ -1272,17 +1252,6 @@ class ReportApiFixture {
     if (/\/groups\/1\/reports\/ai-weekly\/\d+$/.test(path) && method === 'GET') {
       this.reportByIdRequests++;
       return json(route, this.report);
-    }
-    if (/\/groups\/1\/reports\/ai-weekly\/\d+\/pdf$/.test(path) && method === 'GET') {
-      this.pdfRequests++;
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/pdf',
-        headers: {
-          'Content-Disposition': `attachment; filename="ai-weekly-report-${this.report.periodStart}-r${this.report.revision}.pdf"`,
-        },
-        body: '%PDF-1.4\n% deterministic e2e fixture\n%%EOF',
-      });
     }
     if (path === '/groups/1/reports/ai-weekly' && method === 'GET') {
       return json(route, this.report);

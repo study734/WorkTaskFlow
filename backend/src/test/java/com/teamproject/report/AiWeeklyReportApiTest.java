@@ -399,9 +399,28 @@ class AiWeeklyReportApiTest {
                 .andExpect(jsonPath("$.code").value("AI_REPORT_LEGACY_REVISION"));
     }
 
+    /**
+     * 서버 PDF 경로는 없앴다. 렌더러가 CSS 2.1까지만 이해해 리포트 레이아웃을 못 그리는데,
+     * 그 자리에서 내려가던 문서는 리포트 정본과 내용이 달라 받는 사람을 오해시켰다. 산출물은
+     * HTML 하나이고 PDF 저장은 브라우저 인쇄가 한다. 경로가 되살아나면 이 테스트가 잡는다.
+     */
     @Test
-    @DisplayName("PDF 다운로드 시 Content-Type, Cache-Control, Content-Disposition 헤더가 정상 설정되며 Gateway는 호출되지 않는다")
-    void downloadPdfHasRequiredHeadersAndZeroGatewayCall() throws Exception {
+    @DisplayName("PDF endpoint는 더 이상 열려 있지 않다")
+    void doesNotServeAPdfEndpoint() throws Exception {
+        AiWeeklyReportRevision rev = revisionRepository.save(new AiWeeklyReportRevision(
+                paidTeamGroup.getId(), LocalDate.of(2026, 7, 20), LocalDate.of(2026, 7, 27),
+                "KO", 1, "FINALIZED", "OPENAI", "FP1", "{\"schemaVersion\":\"ai-weekly-report-snapshot.v1\",\"reportContext\":{\"groupId\":\"GROUP-1\",\"period\":{\"from\":\"2026-07-20\",\"toExclusive\":\"2026-07-27\",\"timezone\":\"Asia/Seoul\"},\"snapshotAt\":\"2026-07-27T00:00:00Z\",\"language\":\"KO\",\"promptVersion\":\"v7-2\"},\"metrics\":{\"periodTaskCount\":0,\"completionRatePercent\":0,\"onTimeRatePercent\":0,\"delayedCount\":0},\"comparison\":{\"status\":\"NO_BASELINE\"},\"workflow\":{\"requestedCount\":0,\"todoUnassignedCount\":0,\"todoAssignedCount\":0,\"inProgressCount\":0,\"onHoldCount\":0,\"completedCount\":0},\"members\":[],\"tasks\":[],\"calendarConstraints\":[],\"riskCandidates\":[]}", "{\"schemaVersion\":\"ai-weekly-report-analysis.v1\",\"analysisStatus\":\"NORMAL\",\"issues\":[],\"globalMissingEvidence\":[]}",
+                "v7-2-prompt-001", "gpt-4o", 100, 200, LocalDateTime.now(), LocalDateTime.now()
+        ));
+
+        mvc.perform(get("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly/" + rev.getId() + "/pdf")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + memberToken))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("HTML 다운로드 시 Gateway는 호출되지 않는다")
+    void downloadDocumentMakesZeroGatewayCall() throws Exception {
         AiWeeklyReportRevision rev = revisionRepository.save(new AiWeeklyReportRevision(
                 paidTeamGroup.getId(), LocalDate.of(2026, 7, 20), LocalDate.of(2026, 7, 27),
                 "KO", 1, "FINALIZED", "OPENAI", "FP1", "{\"schemaVersion\":\"ai-weekly-report-snapshot.v1\",\"reportContext\":{\"groupId\":\"GROUP-1\",\"period\":{\"from\":\"2026-07-20\",\"toExclusive\":\"2026-07-27\",\"timezone\":\"Asia/Seoul\"},\"snapshotAt\":\"2026-07-27T00:00:00Z\",\"language\":\"KO\",\"promptVersion\":\"v7-2\"},\"metrics\":{\"periodTaskCount\":0,\"completionRatePercent\":0,\"onTimeRatePercent\":0,\"delayedCount\":0},\"comparison\":{\"status\":\"NO_BASELINE\"},\"workflow\":{\"requestedCount\":0,\"todoUnassignedCount\":0,\"todoAssignedCount\":0,\"inProgressCount\":0,\"onHoldCount\":0,\"completedCount\":0},\"members\":[],\"tasks\":[],\"calendarConstraints\":[],\"riskCandidates\":[]}", "{\"schemaVersion\":\"ai-weekly-report-analysis.v1\",\"analysisStatus\":\"NORMAL\",\"issues\":[],\"globalMissingEvidence\":[]}",
@@ -410,12 +429,11 @@ class AiWeeklyReportApiTest {
 
         int preCallCount = gatewayCallCount.get();
 
-        mvc.perform(get("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly/" + rev.getId() + "/pdf")
+        mvc.perform(get("/api/v1/groups/" + paidTeamGroup.getId() + "/reports/ai-weekly/" + rev.getId() + "/download")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + memberToken))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE))
-                .andExpect(header().stringValues(HttpHeaders.CACHE_CONTROL, org.hamcrest.Matchers.hasItem("private, no-store")))
-                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, org.hamcrest.Matchers.containsString("ai-weekly-report-2026-07-20-r1.pdf")));
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_HTML_VALUE))
+                .andExpect(header().stringValues(HttpHeaders.CACHE_CONTROL, org.hamcrest.Matchers.hasItem("private, no-store")));
 
         assertThat(gatewayCallCount.get()).isEqualTo(preCallCount);
     }
