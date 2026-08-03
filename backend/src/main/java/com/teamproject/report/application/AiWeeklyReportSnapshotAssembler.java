@@ -173,8 +173,17 @@ public class AiWeeklyReportSnapshotAssembler {
 
     // ---------- 지표 ----------
 
+    /**
+     * 완료율의 모수는 기간 업무 전체가 아니라 실제로 수행 대상이었던 업무다. 반려·취소는 팀이
+     * 완료할 수 있는 일이 아닌데 모수에 들어가면 완료율이 눌린다. 그룹 20의 한 주는 14건 중
+     * 3건이 반려·취소여서 8/14=57%로 찍혔지만 실제 수행 대상 기준으로는 8/11=73%다.
+     *
+     * <p>periodTaskCount는 그대로 기간에 있던 업무 전체다. 그 수까지 줄이면 "이 기간에 무엇이
+     * 있었는가"를 답할 수 없다.
+     */
     private SnapshotMetrics metrics(List<TaskSnapshot> tasks, LocalDate toExclusive, ZoneId zone) {
         int total = tasks.size();
+        long actionable = tasks.stream().filter(task -> !isClosedUnfinished(task)).count();
         long completed = tasks.stream().filter(this::isCompleted).count();
         long onTime = tasks.stream().filter(task -> dueState(task, toExclusive, zone)
                 == DueState.COMPLETED_ON_TIME).count();
@@ -186,7 +195,7 @@ public class AiWeeklyReportSnapshotAssembler {
                 .filter(value -> value >= 0)
                 .toList();
         return new SnapshotMetrics(total,
-                percent(completed, total),
+                percent(completed, actionable),
                 completed == 0 ? null : percent(onTime, completed),
                 Math.toIntExact(delayed),
                 hours.isEmpty() ? null
@@ -331,7 +340,15 @@ public class AiWeeklyReportSnapshotAssembler {
         return task.status() == TaskReportDataQuery.Status.COMPLETED;
     }
 
+    private boolean isClosedUnfinished(TaskSnapshot task) {
+        return task.status() == TaskReportDataQuery.Status.REJECTED
+                || task.status() == TaskReportDataQuery.Status.CANCELLED;
+    }
+
     private DueState dueState(TaskSnapshot task, LocalDate toExclusive, ZoneId zone) {
+        // 반려·취소된 업무는 마감이 지나도 지연이 아니다. 아무도 그 마감을 다시 맞출 일이 없다.
+        // 완료 시각보다 먼저 본다. 닫힌 뒤에 남은 완료 시각은 정시 완료로 셀 근거가 못 된다.
+        if (isClosedUnfinished(task)) return DueState.CLOSED_UNFINISHED;
         LocalDateTime due = task.dueAt();
         if (task.completedAt() != null) {
             if (due == null) return DueState.COMPLETED_ON_TIME;

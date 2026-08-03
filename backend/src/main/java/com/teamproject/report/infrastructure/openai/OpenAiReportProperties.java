@@ -30,7 +30,7 @@ public record OpenAiReportProperties(
     public static final int DEFAULT_MAX_RETRIES = 1;
     public static final int MAX_ALLOWED_RETRIES = 3;
     public static final long DEFAULT_MAX_OUTPUT_TOKENS = 3000L;
-    public static final String DEFAULT_PROMPT_VERSION = "v7-2-prompt-001";
+    public static final String DEFAULT_PROMPT_VERSION = "v7-2-prompt-003";
 
     public OpenAiReportProperties {
         apiKey = blankToEmpty(apiKey);

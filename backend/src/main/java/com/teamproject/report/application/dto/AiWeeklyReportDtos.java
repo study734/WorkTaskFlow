@@ -89,7 +89,9 @@ public final class AiWeeklyReportDtos {
     }
 
     public enum DueState {
-        NO_DUE, UPCOMING, DUE_SOON, OVERDUE, COMPLETED_ON_TIME, COMPLETED_LATE
+        NO_DUE, UPCOMING, DUE_SOON, OVERDUE, COMPLETED_ON_TIME, COMPLETED_LATE,
+        /** 반려·취소로 닫힌 업무. 마감이 있어도 더 진행되지 않으므로 지연으로 세지 않는다. */
+        CLOSED_UNFINISHED
     }
 
     /** 자유 입력 보류 사유 원문은 전송하지 않는다. 구조화 category만 보낸다. */

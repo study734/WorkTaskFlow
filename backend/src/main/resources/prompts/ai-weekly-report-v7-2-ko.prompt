@@ -22,9 +22,32 @@ confidence가 HIGH이면 missingEvidence는 반드시 빈 배열이다.
 confidence가 INSUFFICIENT_EVIDENCE이면 missingEvidence에 최소 1개를 넣는다.
 근거가 부족하지만 항목을 남겨야 하면 MEDIUM을 쓴다.
 
-모든 문장은 "~합니다" 체로 쓴다. "~하다", "~이다", "~있다" 같은 평서체를 쓰지 않는다.
-서버가 만드는 문장과 같은 문서에 실리므로 문체가 다르면 읽는 사람이 이질감을 느낀다.
-개조식 명사 나열도 피하고 완결된 문장으로 쓴다.
+설명하는 칸은 "~합니다" 체로 쓴다. "~하다", "~이다", "~있다" 같은 평서체를 쓰지 않는다.
+서버가 만드는 문장과 같은 문체라야 읽는 사람이 이질감을 느끼지 않는다.
+여기에 해당하는 칸은 executiveJudgment.headline, executiveJudgment.interpretation,
+achievement.headline, achievement.summary, issue.impact, issue.integratedJudgment,
+decision.question, decision.recommendation이다. 이 칸들은 완결된 문장으로 쓴다.
+
+achievement.headline은 완료 업무가 무엇을 가능하게 했는지, 어떤 결과를 확보했는지 쓴다.
+"완료 업무가 확인됩니다"처럼 완료 사실만 되풀이하거나 업무 제목을 나열하지 않는다.
+achievement.summary는 headline을 바꿔 말하지 말고 그 판단을 뒷받침하는 구체적 완료 결과를 쓴다.
+  좋은 예: 핵심 가입 흐름과 복구 절차를 완료해 시연 기반을 확보했습니다.
+  나쁜 예: 기간 내 완료 업무가 확인됩니다.
+
+반대로 아래 세 칸은 카드의 이름표다. 문장을 넣으면 제목 자리에 세 줄이 들어가고,
+위험 카드인지 결정 카드인지 구분되지 않는다. 형태를 지정한다.
+
+issue.title은 위험의 종류를 가리키는 명사구다. 20자 안쪽으로 쓴다.
+  좋은 예: 체크리스트 미착수 / 담당 미할당 지연 / 승인 대기 범위 유입
+  나쁜 예: 주간 리포트 문구 검토의 체크리스트 착수를 결정합니다.
+issue.requiredDecision은 팀장이 무엇을 정해야 하는지 가리키는 명사구다. 25자 안쪽으로 쓴다.
+  좋은 예: 담당자와 새 마감 확정 / 보류 해제 기준 확정
+  나쁜 예: 팀장은 현재 계획을 유지하면서 체크리스트를 시작하도록 결정해야 합니다.
+decision.title은 회의에서 확정할 행동 한 줄이며 "~한다"로 끝낸다. 30자 안쪽으로 쓴다.
+  좋은 예: 담당자와 새 마감을 확정한다 / 보류 해제 기준을 확정한다
+  나쁜 예: 담당자 지정 여부를 결정합니다.
+
+이 세 칸에 한해 "~합니다" 체 규칙을 적용하지 않는다. 나머지 칸은 그대로 지킨다.
 
 문장 안에서 업무·팀원·일정을 가리킬 때는 TASK-12, MEMBER-3, EVENT-7 같은 ref를
 그대로 쓴다. 서버가 출력 직전에 실제 제목과 이름으로 바꾼다. ref를 피하려고
@@ -38,12 +61,21 @@ riskCandidates 같은 말은 구조화 필드에만 넣고, 문장에서는 "마
 모든 taskRef는 입력 Snapshot의 tasks에 실제로 존재하는 값이어야 한다.
 issues는 최대 3개이며 priority는 앞에서부터 P1, P2, P3 순서다.
 issues의 candidateRef는 riskCandidates의 candidateRef 중 하나여야 한다.
-issue마다 taskRefs의 첫 업무가 그 카드의 대표로 화면에 뜬다. 서로 다른 이슈가 같은 업무를
-대표로 쓰면 독자는 같은 카드가 두 번 있는 것으로 읽는다. 가능하면 다른 업무를 앞에 둔다.
+서로 다른 이슈가 같은 업무만 근거로 쓰면 독자는 같은 카드가 두 번 있는 것으로 읽는다.
+이슈마다 다른 업무를 다룬다. 한 업무에 위험이 겹치면 이슈를 나누지 말고 하나로 합친다.
 issue.evidenceCodes는 그 candidate의 evidenceCodes 부분집합이어야 한다.
 decision의 recommendedOptionCode, executionStepCodes, completionSignalCodes는
 각각 그 candidate의 allowedOptionCodes, allowedExecutionStepCodes,
 allowedCompletionSignalCodes 안에서만 고른다.
+
+completionSignalCodes는 허용 목록 안에서 해당하는 것을 빠짐없이 고른다. 이 값은 회의에서
+"무엇이 저장되면 이 결정이 끝난 것인가"를 확인하는 목록이다. 하나만 고르면 담당자는
+지정했는데 마감은 비어 있는 상태가 완료로 넘어간다. 실행 단계가 남기는 결과를 모두 넣는다.
+
+decision.deadline.source는 그 결정을 언제까지 내려야 하는지다. 회의에서 그 자리에 정할 일이면
+MEETING_END, 확정 일정 전에 정해야 하면 CALENDAR_EVENT, 업무 마감이 기준이면 TASK_DUE,
+기한 자체를 팀장이 정해야 하면 LEADER_DECISION_REQUIRED를 쓴다.
+이미 마감을 넘긴 업무에는 TASK_DUE를 쓰지 않는다. 지난 날짜를 기한으로 제시하는 셈이다.
 
 decision.decisionMakerRole은 LEADER 또는 GROUP_ADMIN만 쓴다.
 decision.actionOwnerRole은 SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER, LEADER,

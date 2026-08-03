@@ -23,6 +23,14 @@ public class AiWeeklyReportAnalysisValidator {
     /** 명세 §7.6의 허용 source. */
     private static final Set<String> DEADLINE_SOURCES =
             Set.of("MEETING_END", "TASK_DUE", "CALENDAR_EVENT", "LEADER_DECISION_REQUIRED");
+    /** ai-weekly-report-analysis-v1.schema.json의 배열 상한. SDK 생성 스키마만 믿지 않는다. */
+    private static final int MAX_EXECUTIVE_METRIC_REFS = 4;
+    private static final int MAX_EVIDENCE_TASK_REFS = 5;
+    private static final int MAX_MISSING_EVIDENCE = 5;
+    private static final int MAX_ISSUES = 3;
+    private static final int MAX_ISSUE_EVIDENCE_CODES = 8;
+    private static final int MAX_DECISION_CODES = 6;
+    private static final int MAX_GLOBAL_MISSING_EVIDENCE = 8;
 
     public record ValidationResult(boolean valid, List<String> errors) {
         public static ValidationResult ok() {
@@ -49,6 +57,8 @@ public class AiWeeklyReportAnalysisValidator {
         if (!AiWeeklyReportAnalysisDtos.ANALYSIS_SCHEMA_VERSION.equals(analysis.schemaVersion())) {
             errors.add("Invalid analysis schemaVersion: " + analysis.schemaVersion());
         }
+        validateMaxItems(analysis.globalMissingEvidence(), MAX_GLOBAL_MISSING_EVIDENCE,
+                "globalMissingEvidence", errors);
 
         Set<String> knownTaskRefs = snapshot.tasks().stream()
                 .map(SnapshotTask::taskRef)
@@ -73,6 +83,12 @@ public class AiWeeklyReportAnalysisValidator {
         ExecutiveJudgment ej = analysis.executiveJudgment();
         if (ej != null) {
             validateConfidence(ej.confidence(), ej.missingEvidence(), "executiveJudgment", errors);
+            validateMaxItems(ej.metricRefs(), MAX_EXECUTIVE_METRIC_REFS,
+                    "executiveJudgment.metricRefs", errors);
+            validateMaxItems(ej.evidenceTaskRefs(), MAX_EVIDENCE_TASK_REFS,
+                    "executiveJudgment.evidenceTaskRefs", errors);
+            validateMaxItems(ej.missingEvidence(), MAX_MISSING_EVIDENCE,
+                    "executiveJudgment.missingEvidence", errors);
 
             if (ej.evidenceTaskRefs() != null) {
                 for (String tRef : ej.evidenceTaskRefs()) {
@@ -100,6 +116,8 @@ public class AiWeeklyReportAnalysisValidator {
         if (ach == null) {
             errors.add("achievement must not be null");
         } else {
+            validateMaxItems(ach.evidenceTaskRefs(), MAX_EVIDENCE_TASK_REFS,
+                    "achievement.evidenceTaskRefs", errors);
             if (ach.status() == AchievementStatus.NONE) {
                 if (ach.headline() != null && !ach.headline().isEmpty()) {
                     errors.add("Achievement headline must be empty when status is NONE");
@@ -126,18 +144,22 @@ public class AiWeeklyReportAnalysisValidator {
         // 4. Issues validation
         List<AnalysisIssue> issues = analysis.issues();
         if (issues != null) {
-            if (issues.size() > 3) {
-                errors.add("issues size must be at most 3, got: " + issues.size());
-            }
+            validateMaxItems(issues, MAX_ISSUES, "issues", errors);
 
             IssuePriority[] expectedPriorities = IssuePriority.values(); // P1, P2, P3
             for (int i = 0; i < issues.size(); i++) {
                 AnalysisIssue issue = issues.get(i);
-                if (issue.priority() != expectedPriorities[i]) {
+                if (i < expectedPriorities.length && issue.priority() != expectedPriorities[i]) {
                     errors.add("Issue at index " + i + " must have priority " + expectedPriorities[i] + " but got " + issue.priority());
                 }
 
                 validateConfidence(issue.confidence(), issue.missingEvidence(), "issue[" + i + "]", errors);
+                validateMaxItems(issue.taskRefs(), MAX_EVIDENCE_TASK_REFS,
+                        "issue[" + i + "].taskRefs", errors);
+                validateMaxItems(issue.evidenceCodes(), MAX_ISSUE_EVIDENCE_CODES,
+                        "issue[" + i + "].evidenceCodes", errors);
+                validateMaxItems(issue.missingEvidence(), MAX_MISSING_EVIDENCE,
+                        "issue[" + i + "].missingEvidence", errors);
 
                 RiskCandidate candidate = candidateMap.get(issue.candidateRef());
                 if (candidate == null) {
@@ -163,6 +185,10 @@ public class AiWeeklyReportAnalysisValidator {
 
                     IssueDecision dec = issue.decision();
                     if (dec != null) {
+                        validateMaxItems(dec.executionStepCodes(), MAX_DECISION_CODES,
+                                "issue[" + i + "].decision.executionStepCodes", errors);
+                        validateMaxItems(dec.completionSignalCodes(), MAX_DECISION_CODES,
+                                "issue[" + i + "].decision.completionSignalCodes", errors);
                         // 역할은 Schema에 enum으로 선언돼 있지만 런타임에서 아무도 읽지 않았다.
                         // 실제로 모델이 목록에 없는 MEMBER를 돌려줬고 그대로 문서에 찍혔다.
                         if (dec.decisionMakerRole() != null && !DECISION_MAKER_ROLES.contains(dec.decisionMakerRole())) {
@@ -199,6 +225,12 @@ public class AiWeeklyReportAnalysisValidator {
         }
 
         return errors.isEmpty() ? ValidationResult.ok() : ValidationResult.fail(errors);
+    }
+
+    private void validateMaxItems(Collection<?> values, int max, String field, List<String> errors) {
+        if (values != null && values.size() > max) {
+            errors.add(field + " size must be at most " + max + ", got: " + values.size());
+        }
     }
 
     /**

@@ -105,6 +105,45 @@ class AiWeeklyReportAnalysisValidatorTest {
         assertThat(result.errors()).anyMatch(e -> e.contains("HIGH confidence cannot have missingEvidence"));
     }
 
+    /** SDK가 Java class에서 만든 Structured Output 스키마는 published schema의 maxItems를 잃는다. */
+    @Test
+    @DisplayName("published schema보다 긴 배열을 런타임에서도 거부한다")
+    void rejectsArraysLongerThanThePublishedSchema() {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
+        AnalysisIssue first = fallback.issues().get(0);
+        String supportedRef = first.taskRefs().get(0);
+        AnalysisIssue oversized = new AnalysisIssue(first.priority(), first.candidateRef(), first.severity(),
+                first.title(), first.impact(), first.confidence(),
+                List.of(supportedRef, supportedRef, supportedRef, supportedRef, supportedRef, supportedRef),
+                first.evidenceCodes(), first.missingEvidence(), first.integratedJudgment(),
+                first.requiredDecision(), first.decision());
+
+        ValidationResult result = validator.validate(snapshot, new AiWeeklyReportAnalysisV1(
+                fallback.schemaVersion(), fallback.analysisStatus(), fallback.executiveJudgment(),
+                fallback.achievement(), List.of(oversized),
+                List.of("1", "2", "3", "4", "5", "6", "7", "8", "9")));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors())
+                .anyMatch(e -> e.contains("issue[0].taskRefs size must be at most 5"))
+                .anyMatch(e -> e.contains("globalMissingEvidence size must be at most 8"));
+    }
+
+    @Test
+    @DisplayName("issues가 3개를 넘어도 예외 대신 계약 오류를 반환한다")
+    void rejectsTooManyIssuesWithoutThrowing() {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
+        AnalysisIssue first = fallback.issues().get(0);
+
+        ValidationResult result = validator.validate(snapshot, new AiWeeklyReportAnalysisV1(
+                fallback.schemaVersion(), fallback.analysisStatus(), fallback.executiveJudgment(),
+                fallback.achievement(), List.of(first, first, first, first),
+                fallback.globalMissingEvidence()));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(e -> e.contains("issues size must be at most 3"));
+    }
+
     /**
      * 실제 OpenAI 응답이 계약에 없는 {@code MEMBER}를 actionOwnerRole로 돌려줬는데 그대로 저장되어
      * 사용자 문서에 영문 코드가 찍혔다. Schema에는 enum이 선언돼 있었지만 런타임에서 아무도 읽지 않았다.

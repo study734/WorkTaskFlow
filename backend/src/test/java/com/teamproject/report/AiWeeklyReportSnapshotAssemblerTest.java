@@ -146,6 +146,102 @@ class AiWeeklyReportSnapshotAssemblerTest {
                 .isEqualTo("승인 후 담당자가 없는 체크리스트가 시작되지 않은 지연된 업무");
     }
 
+    /**
+     * 취소·반려된 업무의 마감은 아무도 다시 맞추지 않는다. 지연으로 세면 회의에서 이미 닫힌
+     * 업무의 담당자와 새 마감을 확인하자는 결론이 나온다.
+     */
+    @Test
+    @DisplayName("마감이 지난 반려·취소 업무를 지연으로 세지 않는다")
+    void doesNotCountClosedTasksAsDelayed() {
+        Fixture fixture = fixture();
+        task(fixture, "취소된 업무", Task.Status.CANCELLED, fixture.leader,
+                FROM.plusDays(3).atTime(18, 0), null, 2, 0, FROM.plusDays(1));
+        task(fixture, "반려된 업무", Task.Status.REJECTED, fixture.leader,
+                FROM.plusDays(3).atTime(18, 0), null, 2, 0, FROM.plusDays(1));
+        overdueUnassignedTask(fixture);
+        flush();
+
+        var snapshot = assemble(fixture);
+
+        assertThat(snapshot.metrics().delayedCount()).isEqualTo(1);
+        assertThat(snapshot.tasks())
+                .filteredOn(view -> view.status() == TaskStatus.CANCELLED
+                        || view.status() == TaskStatus.REJECTED)
+                .hasSize(2)
+                .allSatisfy(view ->
+                        assertThat(view.dueState()).isEqualTo(DueState.CLOSED_UNFINISHED));
+    }
+
+    /**
+     * 완료율 모수에서 반려·취소를 뺀다. 팀이 완료할 수 있는 일이 아닌데 모수에 들어가면 완료율이
+     * 눌린다. 기간 업무 수(periodTaskCount)는 줄이지 않는다 — 그 수는 "이 기간에 무엇이 있었나"에
+     * 답하는 값이다.
+     */
+    @Test
+    @DisplayName("완료율 모수에서 반려·취소를 빼고 기간 업무 수는 그대로 둔다")
+    void ratesCompletionAgainstTheActionableTasks() {
+        Fixture fixture = fixture();
+        completedTask(fixture);
+        task(fixture, "취소된 업무", Task.Status.CANCELLED, fixture.leader,
+                FROM.plusDays(3).atTime(18, 0), null, 2, 0, FROM.plusDays(1));
+        task(fixture, "반려된 업무", Task.Status.REJECTED, fixture.leader,
+                FROM.plusDays(3).atTime(18, 0), null, 2, 0, FROM.plusDays(1));
+        overdueUnassignedTask(fixture);
+        flush();
+
+        var metrics = assemble(fixture).metrics();
+
+        assertThat(metrics.periodTaskCount()).isEqualTo(4);
+        // 수행 대상은 완료 1건 + 미완료 1건. 반려·취소 2건은 모수에서 빠진다.
+        assertThat(metrics.completionRatePercent()).isEqualTo(50);
+    }
+
+    /**
+     * 문서는 "완료율 모수"를 계약 필드가 아니라 workflow 합으로 구한다. workflow가 반려·취소를
+     * 제외한 여섯 상태만 센다는 항등식에 기대고 있으므로 여기서 고정한다. 상태가 늘어나면서
+     * 이 항등식이 깨지면 문서의 분모가 조용히 틀어진다.
+     */
+    @Test
+    @DisplayName("workflow 합과 반려·취소 수를 더하면 기간 업무 수가 된다")
+    void keepsWorkflowBucketsAndClosedTasksAddingUpToThePeriodTotal() {
+        Fixture fixture = fixture();
+        completedTask(fixture);
+        overdueUnassignedTask(fixture);
+        task(fixture, "취소된 업무", Task.Status.CANCELLED, fixture.leader,
+                FROM.plusDays(3).atTime(18, 0), null, 2, 0, FROM.plusDays(1));
+        flush();
+
+        var snapshot = assemble(fixture);
+        var workflow = snapshot.workflow();
+        long closed = snapshot.tasks().stream()
+                .filter(task -> task.status() == TaskStatus.REJECTED
+                        || task.status() == TaskStatus.CANCELLED)
+                .count();
+        long buckets = workflow.requested() + workflow.acceptedUnassigned()
+                + workflow.assignedNotStarted() + workflow.inProgress()
+                + workflow.onHold() + workflow.completed();
+
+        assertThat(buckets + closed).isEqualTo(snapshot.metrics().periodTaskCount());
+    }
+
+    /** 닫힌 뒤에 남은 완료 시각을 정시 완료로 세면 정시 완료율이 완료 건수를 넘을 수 있다. */
+    @Test
+    @DisplayName("완료 시각이 남은 취소 업무를 정시 완료로 세지 않는다")
+    void doesNotCountACancelledTaskWithACompletedAtAsOnTime() {
+        Fixture fixture = fixture();
+        task(fixture, "완료 후 취소된 업무", Task.Status.CANCELLED, fixture.leader,
+                FROM.plusDays(4).atTime(18, 0), FROM.plusDays(3).atTime(9, 0),
+                3, 3, FROM.plusDays(3));
+        flush();
+
+        var snapshot = assemble(fixture);
+
+        // 수행 대상이 한 건도 없으면 완료율은 0%가 아니라 낼 수 없는 값이다.
+        assertThat(snapshot.metrics().completionRatePercent()).isNull();
+        assertThat(snapshot.metrics().onTimeRatePercent()).isNull();
+        assertThat(snapshot.tasks().get(0).dueState()).isEqualTo(DueState.CLOSED_UNFINISHED);
+    }
+
     @Test
     @DisplayName("보류 업무의 구조화 blocker를 hold category로 옮긴다")
     void mapsStructuredBlockerToHoldCategory() {

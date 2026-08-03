@@ -22,9 +22,33 @@ When confidence is HIGH, missingEvidence must be an empty array.
 When confidence is INSUFFICIENT_EVIDENCE, missingEvidence must hold at least one entry.
 Use MEDIUM when evidence is thin but the item is still worth reporting.
 
-Write complete sentences in a neutral, professional register. Do not use note-style
-fragments or bullet-like noun phrases. The server writes sentences in the same document,
-so a different register reads as a seam.
+Explanatory fields take complete sentences in a neutral, professional register. The
+server writes sentences in the same document, so a different register reads as a seam.
+These fields are executiveJudgment.headline, executiveJudgment.interpretation,
+achievement.headline, achievement.summary, issue.impact, issue.integratedJudgment,
+decision.question, and decision.recommendation.
+
+achievement.headline states what completed work enabled or what outcome it secured.
+Do not merely say completed tasks exist or list task titles.
+achievement.summary must not paraphrase the headline; it gives concrete completed results that support it.
+  Good: Completing the core sign-up flow and recovery path secured a demo-ready baseline.
+  Bad:  Completed tasks were identified during the period.
+
+The three fields below are card labels, not prose. A sentence there fills the heading
+slot with three lines and blurs whether the reader is looking at a risk or a decision.
+Each has a required shape.
+
+issue.title is a noun phrase naming the kind of risk. Keep it under 40 characters.
+  Good: Checklist not started / Unassigned and overdue / New scope awaiting approval
+  Bad:  We should decide whether to start the checklist for the weekly report review.
+issue.requiredDecision is a noun phrase naming what the leader must settle. Under 50 characters.
+  Good: Owner and new due date / Hold-exit criteria
+  Bad:  The leader should keep the current plan and confirm the checklist is started.
+decision.title is one line naming the action to lock in, written as an imperative. Under 60 characters.
+  Good: Assign an owner and set a new due date / Set the hold-exit criteria
+  Bad:  A decision is needed on whether to assign an owner.
+
+The sentence-register rule does not apply to these three fields. It still applies everywhere else.
 
 When prose refers to a task, member, or event, write the ref itself (TASK-12,
 MEMBER-3, EVENT-7). The server replaces it with the real title or name before the
@@ -38,13 +62,24 @@ this document aloud in the meeting.
 Every taskRef must exist in the tasks array of the input snapshot.
 Provide at most 3 issues, with priority P1, P2, P3 in that order.
 Each issue candidateRef must be one of the riskCandidates candidateRef values.
-The first entry of taskRefs becomes the card heading a reader sees. When two issues
-lead with the same task, the page looks like it repeats one card. Prefer a different
-leading task for each issue.
+When two issues cite only the same task, the page looks like it repeats one card.
+Give each issue a different task. When one task carries overlapping risks, merge them
+into a single issue rather than splitting them.
 issue.evidenceCodes must be a subset of that candidate evidenceCodes.
 decision recommendedOptionCode, executionStepCodes, and completionSignalCodes must
 come from that candidate allowedOptionCodes, allowedExecutionStepCodes, and
 allowedCompletionSignalCodes respectively.
+
+Pick every completionSignalCode that applies from the allowed list. This list is what
+the meeting checks to confirm the decision is done. Picking only one lets a task pass
+as complete with an owner assigned but no due date. Cover every result the execution
+steps leave behind.
+
+decision.deadline.source states by when the decision must be made. Use MEETING_END for
+something settled in the meeting itself, CALENDAR_EVENT when it must land before a
+confirmed event, TASK_DUE when the task due date governs, and LEADER_DECISION_REQUIRED
+when the leader must set the deadline. Never use TASK_DUE for a task already past due —
+that offers a date in the past as the deadline.
 
 decision.decisionMakerRole must be LEADER or GROUP_ADMIN.
 decision.actionOwnerRole must be SELECTED_MEMBER, CURRENT_ASSIGNEE, REQUESTER,

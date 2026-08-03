@@ -121,6 +121,28 @@ class OpenAiWeeklyReportGatewayTest {
                 .contains("SELECTED_MEMBER");
     }
 
+    /** Published schema의 maxItems가 Java class 기반 요청 스키마에서 빠져 실제 유료 응답이 폐기됐다. */
+    @Test
+    @DisplayName("요청 스키마가 published schema의 배열 상한을 강제한다")
+    void constrainsArraySizesInTheRequestSchema() throws Exception {
+        AiWeeklyReportAnalysisV1 fallback = fallbackFactory.create(snapshot);
+        stubResponse(completed(json.writeValueAsString(fallback)));
+
+        gateway(true, MODEL).analyze(snapshot);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<StructuredResponseCreateParams<AiWeeklyReportAnalysisContract>> captor =
+                ArgumentCaptor.forClass(StructuredResponseCreateParams.class);
+        org.mockito.Mockito.verify(responses).create(captor.capture());
+
+        String schema = captor.getValue().rawParams().text().orElseThrow().toString();
+        assertThat(schema)
+                .contains("maxItems=4")
+                .contains("maxItems=5")
+                .contains("maxItems=8")
+                .contains("maxItems=6");
+    }
+
     @Test
     @DisplayName("OpenAI 응답이 비활성화되었거나 모델이 없으면 OpenAiReportUnavailableException을 던진다")
     void throwsExceptionOnDisabledOrMissingModel() {

@@ -1,6 +1,7 @@
 package com.teamproject.report.infrastructure.openai.contract;
 
 import com.fasterxml.jackson.annotation.JsonClassDescription;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,7 +21,9 @@ public final class AiWeeklyReportAnalysisContract {
     public AnalysisStatus analysisStatus;
     public ExecutiveJudgment executiveJudgment;
     public Achievement achievement;
+    @ArraySchema(maxItems = 3)
     public List<Issue> issues;
+    @ArraySchema(maxItems = 8)
     public List<String> globalMissingEvidence;
 
     public enum AnalysisStatus {
@@ -96,9 +99,12 @@ public final class AiWeeklyReportAnalysisContract {
     public static final class ExecutiveJudgment {
         public String headline;
         public String interpretation;
+        @ArraySchema(maxItems = 4)
         public List<MetricRef> metricRefs;
+        @ArraySchema(maxItems = 5)
         public List<String> evidenceTaskRefs;
         public Confidence confidence;
+        @ArraySchema(maxItems = 5)
         public List<String> missingEvidence;
     }
 
@@ -106,6 +112,7 @@ public final class AiWeeklyReportAnalysisContract {
         public AchievementStatus status;
         public String headline;
         public String summary;
+        @ArraySchema(maxItems = 5)
         public List<String> evidenceTaskRefs;
     }
 
@@ -116,8 +123,11 @@ public final class AiWeeklyReportAnalysisContract {
         public String title;
         public String impact;
         public Confidence confidence;
+        @ArraySchema(minItems = 1, maxItems = 5)
         public List<String> taskRefs;
+        @ArraySchema(minItems = 1, maxItems = 8)
         public List<SignalCode> evidenceCodes;
+        @ArraySchema(maxItems = 5)
         public List<String> missingEvidence;
         public String integratedJudgment;
         public String requiredDecision;
@@ -132,7 +142,9 @@ public final class AiWeeklyReportAnalysisContract {
         public DecisionMakerRole decisionMakerRole;
         public ActionOwnerRole actionOwnerRole;
         public Deadline deadline;
+        @ArraySchema(minItems = 1, maxItems = 6)
         public List<ExecutionStepCode> executionStepCodes;
+        @ArraySchema(minItems = 1, maxItems = 6)
         public List<CompletionSignalCode> completionSignalCodes;
     }
 
