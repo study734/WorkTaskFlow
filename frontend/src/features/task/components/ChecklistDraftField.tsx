@@ -34,6 +34,8 @@ export function ChecklistDraftField({ items, onChange, disabled }: {
           value={item}
           maxLength={300}
           disabled={disabled}
+          data-task-paste="checklist"
+          data-checklist-index={index}
           autoFocus={item === '' && index === items.length - 1}
           aria-label={t(`체크리스트 ${index + 1}번 항목`, `Checklist item ${index + 1}`)}
           placeholder={t('예: 참고 자료 정리', 'e.g. Gather reference material')}

@@ -6,6 +6,7 @@ import { taskApi, TaskPriority, TaskResponse } from '../../../api/taskApi';
 import { AppNavigation, Modal } from '../../../app/AppNavigation';
 import { useLanguage } from '../../../app/LanguageContext';
 import { ChecklistDraftField, cleanChecklistDraft } from '../components/ChecklistDraftField';
+import { useTaskPasteImport } from '../components/useTaskPasteImport';
 
 const statusLabels: Record<TaskResponse['status'], [string, string]> = {
   REQUESTED: ['승인 대기', 'Pending approval'], TODO: ['할 일', 'To do'], IN_PROGRESS: ['진행 중', 'In progress'], ON_HOLD: ['보류', 'On hold'],
@@ -31,6 +32,9 @@ export function TasksPage() {
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [claimingId, setClaimingId] = useState<number>();
+  const pasteNotice = useTaskPasteImport({
+    active: showCreate, title, setTitle, checklistItems, setChecklistItems, disabled: saving,
+  });
 
   useEffect(() => {
     if (!Number.isInteger(groupId) || groupId < 1) {
@@ -119,11 +123,12 @@ export function TasksPage() {
         </article>)}</div>
       </section>
       {showCreate && <Modal title={t('새 업무 만들기', 'Create a task')} description={t(`${group?.name ?? '그룹'}에 새로운 업무를 추가합니다.`, `Add a new task to ${group?.name ?? 'this group'}.`)} onClose={() => setShowCreate(false)}><form className="form modal-form" onSubmit={create}>
-        <label className="field"><span>{t('제목', 'Title')}</span><input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t('예: 발표 자료 초안 작성', 'e.g. Draft presentation slides')} /></label>
-        <label className="field"><span>{t('설명 (선택)', 'Description (optional)')}</span><textarea maxLength={5000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+        <label className="field"><span>{t('제목', 'Title')}</span><input required maxLength={120} data-task-paste="title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t('예: 발표 자료 초안 작성', 'e.g. Draft presentation slides')} /><small className="field-help">{t('여러 줄을 붙여넣으면 첫 줄은 제목, 나머지 줄은 체크리스트로 들어갑니다.', 'Paste multiple lines to fill the title from the first line and the checklist from the rest.')}</small></label>
+        <label className="field"><span>{t('설명 (선택)', 'Description (optional)')}</span><textarea maxLength={5000} data-task-paste="description" value={description} onChange={(event) => setDescription(event.target.value)} /></label>
         <label className="field"><span>{t('우선순위', 'Priority')}</span><select value={priority} onChange={(event) => setPriority(event.target.value as TaskPriority)}>{Object.entries(priorityLabels).map(([value, valueLabel]) => <option value={value} key={value}>{label(valueLabel)}</option>)}</select></label>
         <label className="field"><span>{t('마감 날짜·시간 (선택)', 'Due date and time (optional)')}</span><input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /><small className="field-help">{t('시간이 필요한 업무는 시각까지 지정할 수 있습니다.', 'Add a specific time when the task requires one.')}</small></label>
         <ChecklistDraftField items={checklistItems} onChange={setChecklistItems} disabled={saving} />
+        {pasteNotice && <p className="success-message" role="status">{pasteNotice}</p>}
         <div className="modal-actions"><button className="secondary" type="button" onClick={() => setShowCreate(false)}>{t('취소', 'Cancel')}</button><button className="primary" disabled={saving}>{saving ? t('등록 중...', 'Creating...') : t('업무 만들기', 'Create task')}</button></div>
       </form></Modal>}
     </section>
