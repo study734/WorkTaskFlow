@@ -17,6 +17,7 @@ import { HomePage } from './HomePage';
 import { NotificationsPage } from '../features/notification/pages/NotificationsPage';
 import { CalendarPage } from '../features/calendar/pages/CalendarPage';
 import { GroupDashboardPage } from '../features/dashboard/pages/GroupDashboardPage';
+import { AiAgentPage } from '../features/ai/pages/AiAgentPage';
 import { PaymentsPage } from '../features/payment/pages/PaymentsPage';
 import { PwaStatus } from './PwaStatus';
 import { LanguageProvider } from './LanguageContext';
@@ -63,6 +64,7 @@ export default function App() {
     <Route path="/assistant" element={<AiAssistantPage />} />
     <Route path="/calendar" element={<CalendarPage />} />
     <Route path="/groups/:groupId/dashboard" element={<GroupDashboardPage />} />
+    <Route path="/groups/:groupId/ai" element={<AiAgentPage />} />
     <Route path="/group-invitations/accept" element={<InvitationAcceptPage />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/signup" element={<SignupPage />} />
@@ -113,6 +115,7 @@ function pageLabel(pathname: string, language: 'ko' | 'en') {
     if (pathname === '/payments') return 'Payments'; if (pathname === '/admin') return 'Admin';
     if (pathname === '/product') return 'Product'; if (pathname === '/b2b') return 'B2B solutions'; if (pathname === '/pricing') return 'Pricing'; if (pathname === '/contact') return 'Contact';
     if (pathname === '/paid-terms') return 'Paid service terms'; if (pathname === '/refund-policy') return 'Refund policy';
+    if (/\/ai$/.test(pathname)) return 'Work assistant';
     if (/\/dashboard$/.test(pathname)) return 'Group dashboard'; if (/\/members$/.test(pathname)) return 'Team members'; if (/\/tasks$/.test(pathname)) return 'Tasks'; if (/^\/tasks\//.test(pathname)) return 'Task details';
     if (/^\/groups\/\d+$/.test(pathname)) return 'Group settings'; if (pathname === '/signup') return 'Sign up'; if (pathname === '/login') return 'Log in';
     if (pathname === '/find-username') return 'Find username'; if (pathname === '/forgot-password' || pathname === '/reset-password') return 'Reset password';
@@ -123,6 +126,7 @@ function pageLabel(pathname: string, language: 'ko' | 'en') {
   if (pathname === '/app') return '내 대시보드';
   if (pathname === '/calendar') return '캘린더';
   if (pathname === '/notifications') return '알림';
+  if (/^\/groups\/\d+\/ai$/.test(pathname)) return 'AI 업무 비서';
   if (pathname === '/assistant') return 'AI 업무 비서';
   if (/^\/groups\/\d+\/dashboard$/.test(pathname)) return '그룹 대시보드';
   if (/^\/groups\/\d+\/members$/.test(pathname)) return '팀원 목록';
