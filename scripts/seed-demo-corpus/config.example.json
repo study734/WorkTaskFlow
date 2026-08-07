@@ -1,0 +1,12 @@
+{
+  "baseUrl": "http://localhost:8085",
+  "groupName": "WorkTaskFlow 플랫폼팀",
+  "groupDescription": "AI Agent 데모용 팀 그룹. 자연어 조회/조작 시연 데이터가 들어 있습니다.",
+  "timezone": "Asia/Seoul",
+  "accounts": [
+    { "key": "leader", "role": "leader", "username": "replace-me-leader", "password": "replace-me" },
+    { "key": "backend", "role": "member", "username": "replace-me-backend", "password": "replace-me" },
+    { "key": "frontend", "role": "member", "username": "replace-me-frontend", "password": "replace-me" },
+    { "key": "infra", "role": "member", "username": "replace-me-infra", "password": "replace-me" }
+  ]
+}
