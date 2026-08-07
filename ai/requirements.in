@@ -1,0 +1,24 @@
+# 최상위 의존성만 적는다. 고정 버전은 requirements.lock 에 있다.
+# 갱신: uv pip compile requirements.in -o requirements.lock
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
+
+langgraph>=1.1
+langgraph-checkpoint-sqlite
+langchain-core
+langchain-text-splitters
+langchain-openai
+langchain-chroma
+chromadb
+
+# 그룹 자료 본문 추출
+pypdf
+python-docx
+openpyxl
+python-pptx
+
+# Windows/slim 이미지에는 zoneinfo 데이터가 없다.
+tzdata

@@ -70,6 +70,35 @@ services:
     stop_grace_period: 30s
     logging: *default-logging
 
+  # AI Agent. profiles 로 감싸 두었다. 이 인스턴스는 backend 384MB + MySQL 128MB 로
+  # 이미 빠듯해서, 메모리를 올리기 전에는 기본으로 뜨지 않아야 한다.
+  #   띄우기: docker compose --profile ai up -d
+  ai:
+    image: ${AI_IMAGE:-}
+    profiles: ["ai"]
+    restart: unless-stopped
+    env_file:
+      - ${RUNTIME_ENV_FILE:-runtime.env}
+    environment:
+      AI_SPRING_BASE_URL: http://backend:8081
+    expose:
+      - "8090"
+    volumes:
+      - ai-data:/var/lib/totaskflow/ai
+    networks:
+      - app
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8090/internal/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 20s
+    logging: *default-logging
+
   web:
     image: ${WEB_IMAGE:?WEB_IMAGE is required}
     restart: unless-stopped
@@ -114,6 +143,7 @@ networks:
 volumes:
   mysql-data:
   uploads:
+  ai-data:
   letsencrypt:
   certbot-web:
 
